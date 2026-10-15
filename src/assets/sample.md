@@ -59,7 +59,7 @@ Markdown 中的段落就是一行接一行的文本。要创建新段落，只�
 
 [访问 Wanyi424 的 GitHub 主页](https://github.com/Wanyi424)
 
-![DSH Markdown Notes — Your notes. Your files.](https://raw.githubusercontent.com/Wanyi424/dsh-markdown-notes/main/docs/images/plugin-banner.png)
+![DSH Markdown Notes 插件宣传图](https://raw.githubusercontent.com/Wanyi424/dsh-markdown-notes/main/docs/images/plugin-banner.png)
 
 轻松实现富媒体内容展示！
 

@@ -47,7 +47,7 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
   md.renderer.rules.image = (tokens, index, options, env, self) => {
     tokens[index].attrSet('decoding', 'async');
     if (tokens[index].attrGet('src')?.endsWith('/docs/images/plugin-banner.png')) {
-      tokens[index].attrSet('width', '1774'); tokens[index].attrSet('height', '887');
+      tokens[index].attrSet('width', '1672'); tokens[index].attrSet('height', '941');
     }
     return imageRule(tokens, index, options, env, self);
   };
