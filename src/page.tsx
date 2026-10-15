@@ -192,4 +192,3 @@ export function NotesPage({ controller, ctx }: { controller: NotesController; ct
     {dialog && <NoteDialog kind={dialog} initial={dialog === 'location' ? state.directory : dialog === 'copy' ? `${state.active?.replace(/\.md$/i, '')} ${t('copy')}` : state.active ?? ''} directory={state.directory} t={t} busy={state.busy} error={dialogError} onClose={() => setDialog(null)} onSubmit={submit} />}
   </section>;
 }
-
