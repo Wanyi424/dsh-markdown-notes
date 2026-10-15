@@ -14,8 +14,7 @@ export type NotesRequest =
   | { action: 'save'; name: string; content: string; previous: string }
   | { action: 'rename'; name: string; nextName: string }
   | { action: 'import'; files: ImportFile[] }
-  | { action: 'migrate'; directory: string }
-  | { action: 'open-directory' };
+  | { action: 'migrate'; directory: string };
 export interface NotesApi {
   list(): Promise<Library>;
   read(name: string): Promise<Note>;

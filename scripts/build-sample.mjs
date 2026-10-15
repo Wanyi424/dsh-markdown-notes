@@ -1,4 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
+const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+await writeFile(new URL('../src/version.ts', import.meta.url), `// Generated from package.json.\nexport const PLUGIN_VERSION = ${JSON.stringify(manifest.version)};\n`);
 const sample = await readFile(new URL('../src/assets/sample.md', import.meta.url), 'utf8');
 await writeFile(new URL('../src/sample.ts', import.meta.url),
   `// Exact copy of src/assets/sample.md; regenerate with node scripts/build-sample.mjs.\nexport const SAMPLE_NAME = 'Markdown 内容示例.md';\nexport const SAMPLE_CONTENT = ${JSON.stringify(sample)};\n`);

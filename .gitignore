@@ -6,6 +6,7 @@ artifacts/
 src/sample.ts
 src/katex-style.ts
 src/infographic-icons.ts
+src/version.ts
 .env
 .env.*
 !.env.example

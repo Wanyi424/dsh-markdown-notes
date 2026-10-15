@@ -54,6 +54,7 @@
 .dsn-editor .cm-editor { height:100%; }
 .dsn-pane-label { font-size:11px; color:var(--dsn-muted); border-bottom:1px solid var(--dsn-line); height:32px; line-height:32px; padding:0 22px; }
 .dsn-mode-split .dsn-reading-pane { border-left:1px solid var(--dsn-line); }
+.dsn-mode-split .dsn-reading-pane, .dsn-mode-split .cm-scroller { scroll-behavior:auto; overflow-anchor:none; }
 .dsn-mode-split .dsn-prose { padding:28px 28px 70px; }
 .dsn-editor-footer { height:32px; border-top:1px solid var(--dsn-line); display:flex; justify-content:space-between; align-items:center; gap:12px; padding:0 22px; font-size:11px; color:var(--dsn-muted); }
 .dsn-error { margin:12px 24px 0; border:1px solid var(--dsw-alias-state-error-secondary); border-radius:7px; color:var(--dsw-alias-state-error-primary); padding:10px 12px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:13px; }

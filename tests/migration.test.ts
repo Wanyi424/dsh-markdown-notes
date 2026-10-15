@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { NotesStore } from '../src/storage';
 import { NotesSettings } from '../src/settings';
-import { createHandler } from '../src/host';
 import { MAX_NOTE_BYTES } from '../src/contracts';
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
@@ -92,16 +91,6 @@ test('import preserves existing documents, renames collisions, and accepts .mark
   assert.equal((await store.read(longResult.notes[1].name)).content, 'second');
   await assert.rejects(store.importFiles([{ name: '../escape.md', content: 'bad' }]));
   await assert.rejects(store.importFiles([{ name: 'large.md', content: 'a'.repeat(MAX_NOTE_BYTES + 1) }]), { code: 'too-large' });
-});
-
-test('Explorer action opens the active library only, including after a migration', async t => {
-  const { target, store } = await fixture(t);
-  const opened: string[] = [];
-  const handler = createHandler(store, async path => { opened.push(path); });
-  await store.migrate(target);
-  const response = await handler(new Request('http://localhost/api/markdown-notes', { method: 'POST', body: JSON.stringify({ action: 'open-directory', directory: 'C:\\unrelated' }) }));
-  assert.equal(response.status, 200);
-  assert.deepEqual(opened, [target]);
 });
 
 test('writes queued during migration are applied in the new directory', async t => {

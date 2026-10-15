@@ -17,7 +17,7 @@ try {
   let api;
   const openedFolders = [];
   const settings = new NotesSettings(join(temporary, 'settings', 'settings.json'));
-  await apply({ connection: { fetch: { register(route) { api = route.fetch; return () => {}; } } } }, { directory: join(temporary, 'notes') }, settings, async directory => { openedFolders.push(directory); });
+  await apply({ connection: { fetch: { register(route) { api = route.fetch; return () => {}; } } } }, { directory: join(temporary, 'notes') }, settings);
   const light = `--dsw-alias-label-primary:#20232a;--dsw-alias-label-secondary:#555f70;--dsw-alias-label-tertiary:#808898;--dsw-alias-label-primary-inverted:#fff;--dsw-alias-bg-base:#fff;--dsw-alias-bg-layer-1:#f6f7f8;--dsw-alias-bg-overlay:#fff;--dsw-alias-border-l2:#e7e8ec;--dsw-alias-border-l3:#cbd0da;--dsw-alias-button-primary-fill:#14161b;--dsw-alias-button-primary-hover:#30343e;--dsw-alias-interactive-bg-hover:#eceef2;--dsw-alias-interactive-bg-active:#e9ebee;--dsw-alias-button-elevated-fill:#fff;--dsw-alias-brand-primary:#5578b8;--dsw-alias-brand-text:#4166a3;--dsw-alias-link:#4a71b2;--dsw-alias-markdown-inline-code:#f1f3f6;--dsw-alias-markdown-code-block:#f7f8fa;--dsw-alias-markdown-code-block-banner:#f0f2f5;--dsw-alias-state-error-primary:#be4545;--dsw-alias-state-error-secondary:#edcccc;--dsw-alias-state-warn-primary:#dba82e;--dsw-alias-state-success-primary:#32977a;--dsw-alias-bg-multi-select:#ccdcf3;--dsw-alias-bg-mask-1:#00000012;--dsw-alias-bg-mask-2:#00000055;--dsh-frame-top-clearance:0px;`;
   const dark = `--dsw-alias-label-primary:#e2e5ec;--dsw-alias-label-secondary:#abb4c4;--dsw-alias-label-tertiary:#8791a4;--dsw-alias-label-primary-inverted:#16191f;--dsw-alias-bg-base:#191c22;--dsw-alias-bg-layer-1:#1f232b;--dsw-alias-bg-overlay:#262b35;--dsw-alias-border-l2:#343b48;--dsw-alias-border-l3:#485165;--dsw-alias-button-primary-fill:#e2e5ec;--dsw-alias-button-primary-hover:#fff;--dsw-alias-interactive-bg-hover:#303744;--dsw-alias-interactive-bg-active:#343b48;--dsw-alias-button-elevated-fill:#394150;--dsw-alias-markdown-inline-code:#2a303b;--dsw-alias-markdown-code-block:#20252e;--dsw-alias-markdown-code-block-banner:#272d38;--dsw-alias-link:#92b8f4;--dsw-alias-bg-multi-select:#344d70;`;
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{${light}}html[data-theme=dark]{${dark}}*{box-sizing:border-box}body{margin:0;height:100vh;overflow:hidden;font-family:'Segoe UI','Microsoft YaHei',sans-serif;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.fixture-shell{height:100%;display:grid;grid-template-columns:280px minmax(0,1fr)}.fixture-nav{background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2);padding:32px 20px}.fixture-nav h2{font-size:22px;margin:0 0 34px}.fixture-nav div,.fixture-nav button{font-size:14px;padding:14px;border-radius:8px;margin-bottom:6px;display:block;background:transparent;border:0;color:inherit;cursor:pointer}.fixture-nav .active{background:var(--dsw-alias-interactive-bg-active)}.fixture-label{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-top:24px}#plugin{min-width:0;height:100%;overflow:hidden}@media(max-width:900px){.fixture-shell{grid-template-columns:minmax(0,1fr)}.fixture-nav{display:none}}</style></head><body><div class="fixture-shell"><aside class="fixture-nav"><h2>DSH</h2><button id="close-notes">工作台</button><div>插件</div><button id="open-notes" class="active">笔记</button><p class="fixture-label">隔离测试环境 · 非 DSH 实际窗口</p></aside><div id="plugin"></div></div><script src="/entry.js"></script><script src="/plugin.js"></script></body></html>`;
@@ -25,10 +25,18 @@ try {
   const entry = await readFile(join(temporary, 'entry.js'));
   server = createServer(async (req, res) => {
     try {
+      if (req.url === '/open-in-app/open') {
+        const chunks = []; for await (const part of req) chunks.push(part);
+        const body = JSON.parse(Buffer.concat(chunks).toString());
+        assert.equal(body.app, 'explorer');
+        assert.equal(body.path, await settings.directory(join(temporary, 'notes')));
+        openedFolders.push(body.path);
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true })); return;
+      }
       if (req.url === '/api/markdown-notes') {
         const chunks = []; for await (const part of req) chunks.push(part);
-        const response = await api(new Request('http://localhost/api/markdown-notes', { method: 'POST', body: Buffer.concat(chunks), headers: { 'content-type': 'application/json' } }));
-        res.writeHead(response.status, { 'content-type': 'application/json' }); res.end(await response.text()); return;
+        const response = await api(new Request('http://localhost/api/markdown-notes', { method: 'POST', body: Buffer.concat(chunks), headers: { 'content-type': 'application/json', ...(req.headers['x-dsh-notes-client-version'] ? { 'x-dsh-notes-client-version': req.headers['x-dsh-notes-client-version'] } : {}) } }));
+        res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(await response.text()); return;
       }
       res.writeHead(200, { 'content-type': req.url?.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' });
       res.end(req.url === '/entry.js' ? entry : req.url === '/plugin.js' ? plugin : /^\/client\.[a-z]+\.js$/.test(req.url ?? '') ? await readFile(join('lib', req.url.slice(1))) : html);
@@ -37,6 +45,7 @@ try {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1584, height: 992 } });
+  await page.route('https://raw.githubusercontent.com/Wanyi424/dsh-markdown-notes/main/docs/images/plugin-banner.png', route => route.fulfill({ path: resolve('docs/images/plugin-banner.png'), contentType: 'image/png' }));
   const errors = []; const remote = []; const localRequests = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', req => { if (!new URL(req.url()).hostname.match(/^(127\.0\.0\.1|localhost)$/) && !req.url().startsWith('data:')) remote.push(req.url()); else localRequests.push(new URL(req.url()).pathname); });
@@ -87,6 +96,39 @@ try {
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await page.locator('.cm-content').waitFor();
   await page.getByRole('button', { name: '并排', exact: true }).click();
+  await page.locator('.dsn-mode-split .dsn-prose [data-dsn-line]').first().waitFor();
+  await page.locator('.cm-scroller').dispatchEvent('pointerdown');
+  await page.locator('.cm-scroller').evaluate(el => { el.scrollTop = (el.scrollHeight - el.clientHeight) * .35; });
+  await page.waitForFunction(() => document.querySelector('.dsn-reading-pane').scrollTop > 100);
+  await page.waitForTimeout(250);
+  const editorToPreview = await page.evaluate(() => ({ editor: document.querySelector('.cm-scroller').scrollTop, preview: document.querySelector('.dsn-reading-pane').scrollTop }));
+  assert.ok(editorToPreview.editor > 100 && editorToPreview.preview > 100);
+  await page.locator('.dsn-reading-pane').dispatchEvent('pointerdown');
+  const reverseTarget = await page.locator('.dsn-reading-pane').evaluate(el => {
+    const heading = [...el.querySelectorAll('h3[data-dsn-line]')].find(node => node.textContent.includes('Ruby'));
+    const line = Number(heading.dataset.dsnLine);
+    el.scrollTop = heading.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+    return line;
+  });
+  await page.waitForTimeout(300);
+  const reverseLine = await page.locator('.cm-scroller').evaluate(el => {
+    const top = el.getBoundingClientRect().top;
+    return [...el.querySelectorAll('.cm-lineNumbers .cm-gutterElement')].filter(node => /^\d+$/.test(node.textContent.trim()) && node.getBoundingClientRect().bottom > top + 2).map(node => Number(node.textContent.trim()))[0];
+  });
+  await page.screenshot({ path: join(output, 'scroll-sync.png') });
+  assert.ok(Math.abs(reverseLine - reverseTarget) <= 3, `Reverse scroll: expected source line ${reverseTarget}, got ${reverseLine}`);
+  await page.locator('.cm-scroller').dispatchEvent('pointerdown');
+  await page.locator('.cm-scroller').evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await page.waitForTimeout(200);
+  assert.ok(await page.locator('.dsn-reading-pane').evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop < 3));
+  await page.locator('.dsn-reading-pane').dispatchEvent('pointerdown');
+  await page.locator('.dsn-reading-pane').evaluate(el => { el.scrollTop = 0; });
+  await page.waitForTimeout(200);
+  assert.ok(await page.locator('.cm-scroller').evaluate(el => el.scrollTop < 3));
+  const settled = await page.evaluate(() => [document.querySelector('.cm-scroller').scrollTop, document.querySelector('.dsn-reading-pane').scrollTop]);
+  await page.waitForTimeout(350);
+  const stable = await page.evaluate(() => [document.querySelector('.cm-scroller').scrollTop, document.querySelector('.dsn-reading-pane').scrollTop]);
+  assert.deepEqual(stable, settled, 'Scroll positions oscillate after releasing the scroll');
   await page.screenshot({ path: join(output, 'editing-split.png') });
   await page.getByRole('button', { name: '完成', exact: true }).click();
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; document.querySelector('.dsn-reading-pane').scrollTop = 0; });
@@ -137,7 +179,7 @@ try {
   await page.waitForFunction(() => ![...document.querySelectorAll('.dsn-note')].some(n => n.textContent.includes('浏览器验收')));
   assert.equal(errors.length, 0, errors.join('\n'));
   const externalRequests = [...new Set(remote)];
-  assert.ok(externalRequests.every(url => url.startsWith('https://cdn-doocs.oss-cn-shenzhen.aliyuncs.com/')), 'Unexpected external renderer request: ' + externalRequests.join('\n'));
+  assert.ok(externalRequests.every(url => url === 'https://raw.githubusercontent.com/Wanyi424/dsh-markdown-notes/main/docs/images/plugin-banner.png'), 'Unexpected external renderer request: ' + externalRequests.join('\n'));
   // Simulate a genuine file drop. The browser reads copies; only the temporary library is modified.
   const drop = async files => {
     const transfer = await page.evaluateHandle(files => { const data = new DataTransfer(); for (const file of files) data.items.add(new File([file.content], file.name, { type: 'text/markdown' })); return data; }, files);
@@ -174,6 +216,7 @@ try {
     lazyLoading: 'entry only before opening; editor/diagram chunks absent until used',
     migration: 'copied files, committed settings, deleted empty old folder', dragImport: 'passed including name collisions', explorerDispatch: 'active directory verified; OS window mocked',
     largeDocumentGuard: 'passed', closedPanelRequests: 0,
+    synchronizedScroll: { editorToPreview, reverseTarget, reverseLine, endpoints: 'passed', noOscillation: 'passed' },
     interactionFlow: 'create -> edit -> save -> rename -> reload -> read -> cancel delete -> delete passed', tasksAndFootnotes: 'passed', rawHtmlSafety: 'passed', copyAndToc: 'passed', errors, externalRequests };
   await writeFile(join(output, 'report.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));

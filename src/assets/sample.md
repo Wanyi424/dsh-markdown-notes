@@ -57,9 +57,9 @@ Markdown 中的段落就是一行接一行的文本。要创建新段落，只�
 - **链接**：用方括号和圆括号创建链接 `[显示文本](链接地址)`。
 - **图片**：和链接类似，只需在前面加上 `!`，如 `![描述文本](图片链接)`。
 
-[访问 Doocs](https://github.com/doocs)
+[访问 Wanyi424 的 GitHub 主页](https://github.com/Wanyi424)
 
-![doocs](https://cdn-doocs.oss-cn-shenzhen.aliyuncs.com/gh/doocs/md/images/logo-2.png)
+![DSH Markdown Notes — Your notes. Your files.](https://raw.githubusercontent.com/Wanyi424/dsh-markdown-notes/main/docs/images/plugin-banner.png)
 
 轻松实现富媒体内容展示！
 

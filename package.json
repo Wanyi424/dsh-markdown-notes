@@ -1,13 +1,18 @@
 {
   "name": "dsh-markdown-notes",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "简单的 Markdown 笔记：多文档、编辑预览、本地自动保存。",
   "type": "module",
   "license": "MIT",
   "author": "Wanyi424",
-  "repository": { "type": "git", "url": "git+https://github.com/Wanyi424/dsh-markdown-notes.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wanyi424/dsh-markdown-notes.git"
+  },
   "homepage": "https://github.com/Wanyi424/dsh-markdown-notes#readme",
-  "bugs": { "url": "https://github.com/Wanyi424/dsh-markdown-notes/issues" },
+  "bugs": {
+    "url": "https://github.com/Wanyi424/dsh-markdown-notes/issues"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -33,7 +38,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "pack:plugin": "npm run typecheck && npm test && npm run build && npm pack --pack-destination dist"
+    "pack:plugin": "npm run build && npm run typecheck && npm test && npm pack --pack-destination dist"
   },
   "dsh": {
     "bundle": {

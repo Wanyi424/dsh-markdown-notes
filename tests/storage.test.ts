@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { NotesStore, noteName } from '../src/storage';
 import { createHandler } from '../src/host';
 import { SAMPLE_NAME, SAMPLE_CONTENT } from '../src/sample';
+import { PLUGIN_VERSION } from '../src/version';
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-notes-test-'));
@@ -82,7 +83,7 @@ test('Host API handles create/read/save/restart and reports conflict and malform
   const { store } = await fixture(t);
   const handler = createHandler(store);
   const call = (body: unknown) => handler(new Request('http://localhost/api/markdown-notes', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'content-type': 'application/json', 'X-DSH-Notes-Client-Version': PLUGIN_VERSION }, body: JSON.stringify(body),
   }));
   assert.equal((await call({ action: 'create', name: '接口测试' })).status, 200);
   assert.equal((await call({ action: 'save', name: '接口测试', content: '**hello**', previous: '' })).status, 200);

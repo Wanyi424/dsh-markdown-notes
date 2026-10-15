@@ -2,7 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import { API_PATH, type NotesRequest } from './contracts';
 import { NotesError, NotesStore } from './storage';
 import { NotesSettings } from './settings';
-import { openInExplorer } from './explorer';
+import { PLUGIN_VERSION } from './version';
 
 export const name = 'markdown-notes';
 export const inject = ['connection'];
@@ -15,9 +15,12 @@ interface HostContext {
   }): () => void } };
 }
 
-export function createHandler(store: NotesStore, openDirectory = openInExplorer) {
+export function createHandler(store: NotesStore) {
   return async (request: Request): Promise<Response> => {
+    const headers = { 'Cache-Control': 'no-store', 'X-DSH-Notes-Version': PLUGIN_VERSION };
     try {
+      const clientVersion = request.headers.get('X-DSH-Notes-Client-Version');
+      if (clientVersion !== PLUGIN_VERSION) throw new NotesError('version-mismatch', `笔记前后端版本不一致：页面 ${clientVersion ?? '未报告版本（可能仍为旧版）'}，宿主 ${PLUGIN_VERSION}。请确认已安装同一版本插件并完整退出、重新启动 DSH。`);
       const body = await request.json() as NotesRequest;
       if (!body || typeof body !== 'object') throw new NotesError('bad-request', '请求格式不正确。');
       let data: unknown;
@@ -30,10 +33,9 @@ export function createHandler(store: NotesStore, openDirectory = openInExplorer)
         case 'delete': await store.delete(body.name); data = null; break;
         case 'import': data = await store.importFiles(body.files); break;
         case 'migrate': data = await store.migrate(body.directory); break;
-        case 'open-directory': await store.list(); await openDirectory(store.directory); data = null; break;
-        default: throw new NotesError('bad-request', '不支持的笔记操作。');
+        default: throw new NotesError('bad-request', `宿主 ${PLUGIN_VERSION} 不支持笔记操作「${String((body as { action?: unknown }).action).slice(0, 60)}」。请核对插件版本。`);
       }
-      return Response.json({ data }, { headers: { 'Cache-Control': 'no-store' } });
+      return Response.json({ data }, { headers });
     } catch (error) {
       const code = error instanceof NotesError ? error.code : (error as NodeJS.ErrnoException).code ?? 'io-error';
       const messages: Record<string, string> = {
@@ -42,16 +44,16 @@ export function createHandler(store: NotesStore, openDirectory = openInExplorer)
         ENOSPC: '磁盘空间不足，草稿尚未保存。',
       };
       const message = error instanceof NotesError ? error.message : messages[code] ?? '读写笔记失败，请检查目录和磁盘后重试。';
-      return Response.json({ error: { code, message } }, { status: code === 'conflict' || code === 'EEXIST' ? 409 : 400 });
+      return Response.json({ error: { code, message } }, { status: code === 'conflict' || code === 'EEXIST' || code === 'version-mismatch' ? 409 : 400, headers });
     }
   };
 }
 
 export { NotesSettings };
-export async function apply(ctx: HostContext, config: { directory?: string } = {}, settings = new NotesSettings(), openDirectory = openInExplorer) {
+export async function apply(ctx: HostContext, config: { directory?: string } = {}, settings = new NotesSettings()) {
   const store = new NotesStore(await settings.directory(config.directory?.trim() || undefined), {
     seed: true, persistDirectory: directory => settings.saveDirectory(directory), settingsFile: settings.file,
   });
   // The connection registry owns disposal and the host's existing transport/trust boundary.
-  ctx.connection.fetch.register({ path: API_PATH, methods: ['POST'], requestBody: 'buffered', fetch: createHandler(store, openDirectory) });
+  ctx.connection.fetch.register({ path: API_PATH, methods: ['POST'], requestBody: 'buffered', fetch: createHandler(store) });
 }

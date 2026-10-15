@@ -7,6 +7,9 @@ import { SAMPLE_CONTENT } from '../src/sample';
 const render = createMarkdownRenderer(() => '');
 test('bundled sample preserves the supplied document exactly', async () => {
   assert.equal(SAMPLE_CONTENT, await readFile(new URL('../src/assets/sample.md', import.meta.url), 'utf8'));
+  assert.ok(SAMPLE_CONTENT.includes('[访问 Wanyi424 的 GitHub 主页](https://github.com/Wanyi424)'));
+  assert.ok(SAMPLE_CONTENT.includes('/docs/images/plugin-banner.png'));
+  assert.ok(!SAMPLE_CONTENT.includes('logo-2.png'));
 });
 test('sample resolves formulas, local diagrams, ruby, callouts and inline extensions', () => {
   const doc = render(SAMPLE_CONTENT);
@@ -18,7 +21,7 @@ test('sample resolves formulas, local diagrams, ruby, callouts and inline extens
 test('all heading levels, tasks, footnotes, TOC and nested lists are rendered', () => {
   const doc = render('# H1\n\n[TOC]\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6\n\n- [x] done\n- [ ] todo\n\n1. first\n   - nested\n\nReference[^1]\n\n[^1]: Footnote content\n');
   assert.equal(doc.headings.length, 6);
-  for (const fragment of ['<h6', 'dsn-toc', 'href="#dsn-heading-1"', 'task-list-item-checkbox', 'footnotes', '<ol>', '<ul>']) assert.ok(doc.html.includes(fragment), fragment);
+  for (const fragment of ['<h6', 'dsn-toc', 'href="#dsn-heading-1"', 'task-list-item-checkbox', 'footnotes', '<ol ', '<ul ']) assert.ok(doc.html.includes(fragment), fragment);
 });
 test('syntax samples inside code fences stay literal; malformed math does not abort the page', () => {
   const doc = render('```markdown\n==mark== [你好]{nǐ} $x$\n```\n\n$\\notARealCommand$\n\n## Still readable');

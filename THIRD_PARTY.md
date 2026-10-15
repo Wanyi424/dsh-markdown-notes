@@ -4,14 +4,16 @@
 
 ## 默认示例文档
 
-`src/assets/sample.md` 改编自 [doocs/md 的中文示例](https://github.com/doocs/md/blob/main/apps/web/src/assets/example/markdown.zh-CN.md)。本项目保留示例主体，移除了“推荐阅读”及之后的文章链接、分隔线和二维码。
+`src/assets/sample.md` 改编自 [doocs/md 的中文示例](https://github.com/doocs/md/blob/main/apps/web/src/assets/example/markdown.zh-CN.md)。本项目保留示例主体，移除了“推荐阅读”及之后的文章链接、分隔线和二维码，并将“链接与图片”中的主页与图片替换为维护者主页及本项目宣传图。
 
 - 上游：<https://github.com/doocs/md>
 - 作者：Doocs
 - 上游许可：WTFPL Version 2，Copyright (C) 2025 Doocs
 - 许可副本：[licenses/doocs-WTFPL.txt](licenses/doocs-WTFPL.txt)
 
-文档中的品牌、示例图片和外链属于各自权利人。源码中的链接不表示本项目托管这些图片或与相关组织存在合作。
+文档中提及的第三方品牌和外链属于各自权利人。源码中的链接不表示与相关组织存在合作。
+
+`docs/images/plugin-banner.png` 是为本项目生成的宣传图，遵循本项目的 MIT 许可。
 
 ## 图标与字体
 

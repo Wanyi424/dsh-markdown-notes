@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react';
 import { FileText, Plus, MoreHorizontal, Pencil, Check, Columns2, AlignLeft, RefreshCw, Trash2, Folder, FolderOpen, Upload, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { NotesController } from './controller';
 import type { Translate } from './dictionaries';
 import { MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_NOTE_BYTES, type ImportFile } from './contracts';
 import { loadChunk } from './lazy-chunk';
+import { synchronizeScroll, type EditorScrollPort } from './scroll-sync';
 import css from './styles.css';
 
 const NS = 'markdownNotes';
@@ -65,6 +66,12 @@ export function NotesPage({ controller, ctx }: { controller: NotesController; ct
   const cancelledRename = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const readPane = useRef<HTMLDivElement>(null);
+  const [editorPort, setEditorPort] = useState<EditorScrollPort | null>(null);
+  const [previewPane, setPreviewPane] = useState<HTMLDivElement | null>(null);
+  const readingRef = useCallback((element: HTMLDivElement | null) => { readPane.current = element; setPreviewPane(element); }, []);
+  useEffect(() => {
+    if (state.mode === 'split' && editorPort && previewPane) return synchronizeScroll(editorPort, previewPane);
+  }, [state.mode, state.active, editorPort, previewPane]);
   const dirty = state.content !== state.saved;
   const [preview, setPreview] = useState({ name: state.active, content: state.content });
   useEffect(() => {
@@ -180,8 +187,8 @@ export function NotesPage({ controller, ctx }: { controller: NotesController; ct
       {state.notice && <div className="dsn-notice" role="status"><span>{state.notice}</span><button className="dsn-icon" aria-label={t('close')} onClick={() => controller.dismissNotice()}><X /></button></div>}
       {state.active ? <>
         <div className={`dsn-content dsn-mode-${state.mode}`}>
-          {!reading && <div className="dsn-source-pane"><div className="dsn-pane-label">Markdown</div><Suspense fallback={<p className="dsn-rendering">正在打开编辑器…</p>}><MarkdownEditor key={state.active} value={state.content} disabled={state.busy} label={t('content')} onChange={value => controller.edit(value)} onSave={save} /></Suspense></div>}
-          {state.mode !== 'edit' && <div className="dsn-reading-pane" ref={readPane}>
+          {!reading && <div className="dsn-source-pane"><div className="dsn-pane-label">Markdown</div><Suspense fallback={<p className="dsn-rendering">正在打开编辑器…</p>}><MarkdownEditor key={state.active} value={state.content} disabled={state.busy} label={t('content')} onChange={value => controller.edit(value)} onSave={save} onReady={setEditorPort} /></Suspense></div>}
+          {state.mode !== 'edit' && <div className="dsn-reading-pane" ref={readingRef}>
             {state.mode === 'split' && <div className="dsn-pane-label">{t('preview')}</div>}
             {state.content ? <Suspense fallback={<p className="dsn-rendering">正在打开预览…</p>}><MarkdownPreview key={state.active} source={deferred} copyLabel={t('copyCode')} /></Suspense> : <div className="dsn-blank"><FileText /><h2>{t('blankTitle')}</h2><p>{t('blankHint')}</p><button onClick={() => void controller.setMode('edit')}><Pencil />{t('edit')}</button></div>}
           </div>}

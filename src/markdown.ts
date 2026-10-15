@@ -19,8 +19,9 @@ interface Environment { diagrams: Diagram[]; headings: Heading[]; copy: string }
 const titles: Record<string, string> = { note: 'NOTE', tip: 'TIP', important: 'IMPORTANT', warning: 'WARNING', caution: 'CAUTION', theorem: '定理', lemma: '引理', definition: '定义', proof: '证明' };
 const escape = escapeHtml;
 const kindOf = (s: string) => Object.hasOwn(titles, s.toLowerCase()) ? s.toLowerCase() : 'note';
-function callout(kind: string, title: string) {
-  return `<aside class="dsn-callout dsn-callout-${kindOf(kind)}"><div class="dsn-callout-title">${escape(title || titles[kind.toLowerCase()] || kind)}</div><div class="dsn-callout-body">`;
+function sourceAttr(token: Token) { return token.map ? ` data-dsn-line="${token.map[0] + 1}"` : ''; }
+function callout(kind: string, title: string, attributes = '') {
+  return `<aside${attributes} class="dsn-callout dsn-callout-${kindOf(kind)}"><div class="dsn-callout-title">${escape(title || titles[kind.toLowerCase()] || kind)}</div><div class="dsn-callout-body">`;
 }
 
 export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
@@ -33,11 +34,23 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
       render: (tokens: Token[], index: number) => {
         if (tokens[index].nesting === -1) return '</div></aside>\n';
         const [kind, ...title] = tokens[index].info.trim().split(/\s+/);
-        return callout(kind, title.join(' '));
+        return callout(kind, title.join(' '), sourceAttr(tokens[index]));
       },
     });
-  md.renderer.rules.html_block = (tokens, index) => sanitizeRaw(tokens[index].content);
+  md.renderer.rules.html_block = (tokens, index) => `<div${sourceAttr(tokens[index])}>${sanitizeRaw(tokens[index].content)}</div>`;
   md.renderer.rules.html_inline = (tokens, index) => sanitizeRaw(tokens[index].content);
+  for (const [name, render] of Object.entries(md.renderer.rules)) {
+    if (!name.startsWith('math_block') || !render) continue;
+    md.renderer.rules[name] = (tokens, index, options, env, self) => `<div${sourceAttr(tokens[index])}>${render(tokens, index, options, env, self)}</div>`;
+  }
+  const imageRule = md.renderer.rules.image!;
+  md.renderer.rules.image = (tokens, index, options, env, self) => {
+    tokens[index].attrSet('decoding', 'async');
+    if (tokens[index].attrGet('src')?.endsWith('/docs/images/plugin-banner.png')) {
+      tokens[index].attrSet('width', '1774'); tokens[index].attrSet('height', '887');
+    }
+    return imageRule(tokens, index, options, env, self);
+  };
   md.inline.ruler.before('link', 'ruby', (state, silent) => {
     if (state.src[state.pos] !== '[') return false;
     const match = /^\[([^\]\n]+)\](?:\{([^}\n]+)\}|\^\(([^)\n]+)\))/.exec(state.src.slice(state.pos));
@@ -56,6 +69,7 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
   md.core.ruler.after('inline', 'notes_structure', state => {
     const env = state.env as Environment;
     state.tokens.forEach((token, i) => {
+      if (token.map && token.nesting !== -1 && token.type !== 'inline') token.attrSet('data-dsn-line', String(token.map[0] + 1));
       if (token.type === 'heading_open') {
         const inline = state.tokens[i + 1];
         const text = (inline.children ?? []).filter(t => !['html_inline'].includes(t.type)).map(t => t.content).join('');
@@ -83,7 +97,7 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
       }
     });
   });
-  md.renderer.rules.callout_open = (tokens, i) => callout(tokens[i].meta.kind, tokens[i].meta.title);
+  md.renderer.rules.callout_open = (tokens, i) => callout(tokens[i].meta.kind, tokens[i].meta.title, sourceAttr(tokens[i]));
   md.core.ruler.after('notes_structure', 'notes_tasks', state => {
     state.tokens.forEach((token, i) => {
       if (token.type !== 'inline' || state.tokens[i - 1]?.type !== 'paragraph_open' || state.tokens[i - 2]?.type !== 'list_item_open') return;
@@ -98,7 +112,7 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
   });
   md.renderer.rules.notes_checkbox = (tokens, i) => `<input class="task-list-item-checkbox" type="checkbox" disabled ${tokens[i].meta.checked ? 'checked' : ''} aria-label="${tokens[i].meta.checked ? '已完成' : '未完成'}">`;
   md.renderer.rules.callout_close = () => '</div></aside>\n';
-  md.renderer.rules.notes_toc = (_tokens, _i, _options, env: Environment) => `<nav class="dsn-toc" aria-label="目录">${env.headings.filter(h => h.level > 1).map(h => `<a class="dsn-toc-level-${h.level}" href="#${h.id}">${escape(h.text)}</a>`).join('')}</nav>`;
+  md.renderer.rules.notes_toc = (tokens, i, _options, env: Environment) => `<nav${sourceAttr(tokens[i])} class="dsn-toc" aria-label="目录">${env.headings.filter(h => h.level > 1).map(h => `<a class="dsn-toc-level-${h.level}" href="#${h.id}">${escape(h.text)}</a>`).join('')}</nav>`;
   const linkOpen = md.renderer.rules.link_open ?? ((tokens, i, options, _env, self) => self.renderToken(tokens, i, options));
   md.renderer.rules.link_open = (tokens, i, options, env, self) => {
     if (!tokens[i].attrGet('href')?.startsWith('#')) { tokens[i].attrSet('target', '_blank'); tokens[i].attrSet('rel', 'noopener noreferrer'); }
@@ -110,14 +124,14 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
     if (language === 'mermaid' || language === 'infographic') {
       const index = env.diagrams.length;
       env.diagrams.push({ kind: language, source: token.content, index });
-      return `<div class="dsn-diagram-slot" data-dsn-diagram="${index}"></div>`;
+      return `<div${sourceAttr(token)} class="dsn-diagram-slot" data-dsn-diagram="${index}"></div>`;
     }
     let code = escape(token.content);
     if (language && hljs.getLanguage(language)) code = hljs.highlight(token.content, { language, ignoreIllegals: true }).value;
     const note = language === 'plantuml' ? '<div class="dsn-code-note">PlantUML 源码 · 本地保留，不发送至外部渲染服务</div>' : '';
-    return `<figure class="dsn-code"><figcaption><span>${escape(language || 'text')}</span><button type="button" data-dsn-copy="true" aria-label="${escape(env.copy)}">${escape(env.copy)}</button></figcaption><pre><code class="hljs">${code}</code></pre>${note}</figure>`;
+    return `<figure${sourceAttr(token)} class="dsn-code"><figcaption><span>${escape(language || 'text')}</span><button type="button" data-dsn-copy="true" aria-label="${escape(env.copy)}">${escape(env.copy)}</button></figcaption><pre><code class="hljs">${code}</code></pre>${note}</figure>`;
   };
-  md.renderer.rules.table_open = () => '<div class="dsn-table-scroll"><table>';
+  md.renderer.rules.table_open = (tokens, i) => `<div${sourceAttr(tokens[i])} class="dsn-table-scroll"><table>`;
   md.renderer.rules.table_close = () => '</table></div>';
   return (source: string, copy = '复制'): RenderedDocument => {
     const env: Environment = { diagrams: [], headings: [], copy };
