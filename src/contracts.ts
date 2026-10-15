@@ -1,6 +1,6 @@
 export interface NoteSummary { name: string }
 export interface Note { name: string; content: string }
-export interface Library { directory: string; notes: NoteSummary[] }
+export interface Library { directory: string; notes: NoteSummary[]; folders: string[] }
 export interface ImportFile { name: string; content: string }
 export interface ImportResult { notes: NoteSummary[]; errors: string[] }
 export interface MigrationResult { directory: string; previousDirectory: string; moved: number; oldDirectoryRemoved: boolean; warnings: string[] }
@@ -13,7 +13,9 @@ export type NotesRequest =
   | { action: 'create'; name: string }
   | { action: 'save'; name: string; content: string; previous: string }
   | { action: 'rename'; name: string; nextName: string }
-  | { action: 'import'; files: ImportFile[] }
+  | { action: 'create-folder' | 'delete-folder'; name: string }
+  | { action: 'rename-folder'; name: string; nextName: string }
+  | { action: 'import'; files: ImportFile[]; folder?: string }
   | { action: 'migrate'; directory: string };
 export interface NotesApi {
   list(): Promise<Library>;
@@ -22,7 +24,10 @@ export interface NotesApi {
   save(name: string, content: string, previous: string): Promise<Note>;
   rename(name: string, nextName: string): Promise<Note>;
   delete(name: string): Promise<void>;
-  importFiles(files: ImportFile[]): Promise<ImportResult>;
+  createFolder(name: string): Promise<string>;
+  renameFolder(name: string, nextName: string): Promise<string>;
+  deleteFolder(name: string): Promise<void>;
+  importFiles(files: ImportFile[], folder?: string): Promise<ImportResult>;
   migrate(directory: string): Promise<MigrationResult>;
   openDirectory(): Promise<void>;
 }

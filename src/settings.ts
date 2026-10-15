@@ -1,18 +1,18 @@
 import { mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
-import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { notesDataDirectory } from './data-paths';
 
 /** Plugin-owned preferences survive package replacement and live outside the library being moved. */
 export class NotesSettings {
-  constructor(readonly file = join(homedir(), '.dsh-markdown-notes', 'settings.json')) {}
+  constructor(readonly file = join(notesDataDirectory(), 'settings.json')) {}
   async directory(fallback?: string) {
     try {
       const value = JSON.parse(await readFile(this.file, 'utf8'));
       if (typeof value.directory !== 'string' || !isAbsolute(value.directory)) throw new Error('笔记目录配置无效，请检查 ' + this.file);
       return value.directory as string;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback;
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback ?? join(dirname(this.file), 'notes');
       throw error;
     }
   }

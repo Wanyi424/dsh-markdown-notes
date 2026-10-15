@@ -7,12 +7,15 @@ function fixture() {
   const files = new Map([['a.md', 'old'], ['b.md', 'second']]);
   const writes: Array<{ name: string; content: string; previous: string }> = [];
   const api: NotesApi = {
-    list: async () => ({ directory: 'test', notes: [...files.keys()].map(name => ({ name })) }),
+    list: async () => ({ directory: 'test', notes: [...files.keys()].map(name => ({ name })), folders: [] }),
     read: async name => ({ name, content: files.get(name)! }),
     create: async name => { if (files.has(name)) throw new Error('exists'); files.set(name, ''); return { name, content: '' }; },
     save: async (name, content, previous) => { writes.push({ name, content, previous }); files.set(name, content); return { name, content }; },
     rename: async (name, nextName) => { const content = files.get(name)!; files.delete(name); files.set(nextName, content); return { name: nextName, content }; },
     delete: async name => { files.delete(name); },
+    createFolder: async name => name,
+    renameFolder: async (_name, nextName) => nextName,
+    deleteFolder: async () => {},
     importFiles: async imported => { for (const file of imported) files.set(file.name, file.content); return { notes: imported.map(file => ({ name: file.name })), errors: [] }; },
     migrate: async directory => ({ directory, previousDirectory: 'test', moved: files.size, oldDirectoryRemoved: true, warnings: [] }),
     openDirectory: async () => {},

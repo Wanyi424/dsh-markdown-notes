@@ -1,6 +1,6 @@
 {
   "name": "dsh-markdown-notes",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "简单的 Markdown 笔记：多文档、编辑预览、本地自动保存。",
   "type": "module",
   "license": "MIT",
@@ -70,6 +70,7 @@
     "@codemirror/language": "^6.13.1",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.14",
+    "@deepseek-ai/dsh-home-paths": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "@iconify-json/mdi": "^1.2.3",
     "@types/katex": "^0.16.8",

@@ -31,7 +31,10 @@ export function createHandler(store: NotesStore) {
         case 'save': data = await store.save(body.name, body.content, body.previous); break;
         case 'rename': data = await store.rename(body.name, body.nextName); break;
         case 'delete': await store.delete(body.name); data = null; break;
-        case 'import': data = await store.importFiles(body.files); break;
+        case 'create-folder': data = await store.createFolder(body.name); break;
+        case 'rename-folder': data = await store.renameFolder(body.name, body.nextName); break;
+        case 'delete-folder': await store.deleteFolder(body.name); data = null; break;
+        case 'import': data = await store.importFiles(body.files, body.folder); break;
         case 'migrate': data = await store.migrate(body.directory); break;
         default: throw new NotesError('bad-request', `宿主 ${PLUGIN_VERSION} 不支持笔记操作「${String((body as { action?: unknown }).action).slice(0, 60)}」。请核对插件版本。`);
       }
@@ -39,7 +42,8 @@ export function createHandler(store: NotesStore) {
     } catch (error) {
       const code = error instanceof NotesError ? error.code : (error as NodeJS.ErrnoException).code ?? 'io-error';
       const messages: Record<string, string> = {
-        ENOENT: '文档已不存在，请刷新列表。', EEXIST: '已存在同名文档，请换一个名称。',
+        ENOENT: '文档或文件夹已不存在，请刷新列表。', EEXIST: '已存在同名文档或文件夹，请换一个名称。',
+        ENOTEMPTY: '文件夹不为空，请先移走或删除里面的内容。', ENOTDIR: '路径不是文件夹，请刷新列表。',
         EACCES: '无法读写笔记目录，请检查目录权限。', EPERM: '文件被占用或没有操作权限，请关闭其他编辑器后重试。',
         ENOSPC: '磁盘空间不足，草稿尚未保存。',
       };

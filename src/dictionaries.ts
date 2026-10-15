@@ -1,6 +1,11 @@
 export const zh = {
+  folder: '文件夹', rootFolder: '笔记根目录', newFolder: '新建文件夹', folderName: '文件夹名称',
+  renameFolder: '重命名文件夹', deleteFolder: '删除空文件夹', folderMenu: '文件夹操作',
+  deleteFolderHint: '确定删除「{name}」？只有完全为空的文件夹才能删除，包含其他文件或子文件夹时会保留。',
+  folderDestination: '新建 / 导入到', moveNote: '移动到文件夹', targetFolder: '目标文件夹',
+  expandFolder: '展开', collapseFolder: '收起', emptyFolder: '空文件夹',
   newDirectory: '新保存目录', chooseDirectory: '选择文件夹', picking: '正在选择…', migrate: '迁移并使用', migrating: '正在迁移…',
-  migrationHint: '迁移笔记后自动删除空的旧目录。有同名文件时停止迁移；旧目录中的其他文件和子文件夹会保留。',
+  migrationHint: '按原有文件夹结构迁移 Markdown，随后删除空的旧文件夹。同路径文件冲突时停止；其他文件、隐藏目录和链接保留在原处。',
   importMarkdown: '导入 Markdown', openExplorer: '在资源管理器打开', dropMarkdown: '松开以导入 Markdown', dropHint: '复制到笔记目录，原文件保留',
   markdownOnly: '请拖入 .md 或 .markdown 文件。', utf8Only: '文件编码无法识别，请先将文件另存为 UTF-8。', busyImport: '请等待当前操作完成后再导入。', importLimit: '每次最多导入 20 篇，单篇不超过 2 MB，总大小不超过 20 MB。',
   newShort: '新建', local: '本地保存', close: '关闭', done: '完成', copyCode: '复制',
@@ -20,8 +25,13 @@ export const zh = {
   directory: '保存位置', editorLabel: '编辑与预览模式', error: '操作未完成',
 };
 export const en: Record<keyof typeof zh, string> = {
+  folder: 'Folder', rootFolder: 'Library root', newFolder: 'New folder', folderName: 'Folder name',
+  renameFolder: 'Rename folder', deleteFolder: 'Delete empty folder', folderMenu: 'Folder actions',
+  deleteFolderHint: 'Delete “{name}”? Only completely empty folders can be deleted. Other files and subfolders will be preserved.',
+  folderDestination: 'Create / import into', moveNote: 'Move to folder', targetFolder: 'Destination folder',
+  expandFolder: 'Expand', collapseFolder: 'Collapse', emptyFolder: 'Empty folder',
   newDirectory: 'New directory', chooseDirectory: 'Choose folder', picking: 'Choosing…', migrate: 'Move and use', migrating: 'Moving…',
-  migrationHint: 'Notes are moved first, then the empty old folder is removed. Name conflicts stop migration. Other files and subfolders stay untouched.',
+  migrationHint: 'Move Markdown with its folder structure, then remove empty source folders. Conflicting paths stop migration. Other files, hidden folders and links stay at the source.',
   importMarkdown: 'Import Markdown', openExplorer: 'Open in File Explorer', dropMarkdown: 'Drop to import Markdown', dropHint: 'Copies into your library; original files are kept',
   markdownOnly: 'Drop .md or .markdown files.', utf8Only: 'Save the file using UTF-8 encoding first.', busyImport: 'Wait for the current operation before importing.', importLimit: 'Up to 20 files, 2 MB per file and 20 MB per batch.',
   newShort: 'New', local: 'Local notes', close: 'Close', done: 'Done', copyCode: 'Copy',

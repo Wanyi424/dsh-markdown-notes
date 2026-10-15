@@ -32,7 +32,7 @@ test('migration preserves content, persists the new location, and removes only t
 
 test('unrelated files and subfolders in the old directory are retained with a warning', async t => {
   const { source, target, store } = await fixture(t);
-  await mkdir(join(source, '附件')); await writeFile(join(source, 'keep.txt'), 'keep');
+  await mkdir(join(source, '附件')); await writeFile(join(source, '附件', 'photo.txt'), 'attachment'); await writeFile(join(source, 'keep.txt'), 'keep');
   const result = await store.migrate(target);
   assert.equal(result.oldDirectoryRemoved, false);
   assert.ok(result.warnings.length);

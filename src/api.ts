@@ -27,7 +27,10 @@ export function createApi(fetcher?: typeof fetch): NotesApi {
     save: (name, content, previous) => request({ action: 'save', name, content, previous }),
     rename: (name, nextName) => request({ action: 'rename', name, nextName }),
     delete: name => request({ action: 'delete', name }),
-    importFiles: files => request({ action: 'import', files }),
+    createFolder: name => request({ action: 'create-folder', name }),
+    renameFolder: (name, nextName) => request({ action: 'rename-folder', name, nextName }),
+    deleteFolder: name => request({ action: 'delete-folder', name }),
+    importFiles: (files, folder = '') => request({ action: 'import', files, folder }),
     migrate: directory => request({ action: 'migrate', directory }),
     openDirectory: async () => {
       const { directory } = await request<Library>({ action: 'list' });

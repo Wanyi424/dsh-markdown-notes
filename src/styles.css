@@ -21,6 +21,22 @@
 .dsn-root .dsn-new { color:var(--dsw-alias-label-secondary); font-size:12px; padding:4px 5px; }
 .dsn-root .dsn-new svg { width:16px; height:16px; }
 .dsn-list { padding:6px 10px; overflow:auto; flex:1; scrollbar-width:thin; }
+.dsn-create-actions { display:flex; align-items:center; gap:2px; }
+.dsn-folder-destination { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:0 14px 10px; color:var(--dsn-muted); font-size:10px; }
+.dsn-folder-destination > span { min-width:0; }
+.dsn-folder-destination strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:400; }
+.dsn-tree-group { margin:0; padding:0; list-style:none; }
+.dsn-folder-row { display:flex; align-items:center; min-width:0; border-radius:7px; margin-bottom:3px; }
+.dsn-root .dsn-folder-toggle { flex:none; width:24px; padding:6px 2px; color:var(--dsn-muted); }
+.dsn-root .dsn-folder-toggle svg { width:13px; height:13px; }
+.dsn-root .dsn-folder-name { flex:1; min-width:0; padding:9px 5px 9px 0; justify-content:flex-start; text-align:left; }
+.dsn-folder-name span,.dsn-root-folder span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dsn-root .dsn-folder-selected { background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent); }
+.dsn-root .dsn-root-folder { width:100%; justify-content:flex-start; margin-bottom:5px; padding:8px 10px; color:var(--dsw-alias-label-secondary); }
+.dsn-empty-folder { font-size:11px; color:var(--dsn-muted); padding-top:3px; padding-bottom:10px; }
+.dsn-document-path { flex:none; padding:7px 24px; border-bottom:1px solid var(--dsn-line); font-size:11px; color:var(--dsn-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dsn-dialog-location { color:var(--dsw-alias-label-secondary); font-size:12px; overflow-wrap:anywhere; }
+.dsn-dialog select { width:100%; padding:9px 12px; border:1px solid var(--dsw-alias-border-l3); border-radius:7px; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); }
 .dsn-root .dsn-note { width:100%; padding:11px 10px; margin:0 0 3px; justify-content:flex-start; gap:9px; text-align:left; }
 .dsn-note span { min-width:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; }
 .dsn-root .dsn-note svg { color:var(--dsw-alias-label-secondary); width:17px; height:17px; }

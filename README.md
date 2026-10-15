@@ -89,22 +89,26 @@ Release 安装包已包含构建产物，不需要单独安装 Node.js、React �
 
 ### 保存位置与自动迁移
 
-默认位置是当前用户主目录下的 `Documents/DSH Notes`，例如：
+默认位置由 DSH 官方 `@deepseek-ai/dsh-home-paths` 路径库解析，位于 DSH 数据根目录下。例如未设置 `DSH_HOME` 时：
 
 ```text
-%USERPROFILE%\Documents\DSH Notes
+%USERPROFILE%\.dsh\plugin-data\dsh-markdown-notes\notes
 ```
 
 在「… → 保存位置」中选择文件夹或输入绝对路径，点击「迁移并使用」：
 
 1. 保存当前草稿，检查新旧目录和同名冲突。
-2. 复制顶层 `.md` 笔记与插件的初始化标记。
+2. 保持子目录结构，复制普通 `.md` 笔记与初始化标记，并重建空文件夹。
 3. 保存新路径，再清理已成功迁移的旧文件。
-4. 旧目录为空时自动删除；有其他文件、子文件夹或迁移期间被外部修改的文件时，保留并提示。
+4. 清理迁移后的空文件夹；旧目录中还有无关文件或迁移期间被外部修改的文件时，保留并提示。
 
 迁移不会覆盖目标目录中的同名文档。复制或配置保存失败时，原文件保留。新旧目录不能互为父子目录，也不能是磁盘根目录、用户主目录或目录链接。
 
-新路径保存在 `%USERPROFILE%\.dsh-markdown-notes\settings.json`，重启、升级后继续生效。插件的 `directory` 配置项仅作为首次使用时的初始目录；之后请通过界面迁移。
+文件夹创建、重命名、移动笔记和迁移的详细说明见 [多级文件夹](docs/folders.md)。
+
+新路径保存在 `$DSH_HOME/plugin-data/dsh-markdown-notes/settings.json`（默认 `%USERPROFILE%\.dsh\plugin-data\dsh-markdown-notes\settings.json`），重启后继续生效。插件的 `directory` 配置项仅作为首次使用时的初始目录；之后请通过界面迁移。设置文件留在插件数据目录，迁移只移动笔记内容。
+
+`plugin-data/dsh-markdown-notes` 是本插件在 DSH 数据根目录中使用的独立子目录，普通 Markdown 文件仍由插件读写，不转为 DSH 的 KV 存储格式。所有工作区共用这套笔记。当前仍在开发阶段，本版本不读取或迁移旧的 `.dsh-markdown-notes` 设置及 `Documents/DSH Notes` 数据，也不包含旧版兼容逻辑。
 
 ### 导入 Markdown
 
