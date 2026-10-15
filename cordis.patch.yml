@@ -1,0 +1,4 @@
+- insert:
+    - id: markdown-notes
+      name: dsh-markdown-notes
+      config: {}
