@@ -59,12 +59,12 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) 下载 `dsh-markdown-notes-0.5.1.tgz`，**无需解压**。
+1. 从 [Releases](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) 下载 `dsh-markdown-notes-0.5.2.tgz`，**无需解压**。
 2. 打开 DSH **主界面左侧「插件」**，点击右上角「添加插件」。入口不在设置中的「内置插件」列表里。
 3. 粘贴下载包的完整本地路径，例如：
 
    ```text
-   D:\Plugins\dsh-markdown-notes-0.5.1.tgz
+   D:\Plugins\dsh-markdown-notes-0.5.2.tgz
    ```
 
 4. 按提示安装、启用；如果提示需要重启，重启 DSH。
