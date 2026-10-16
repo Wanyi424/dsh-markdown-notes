@@ -18,6 +18,7 @@ export interface RenderedDocument { html: string; diagrams: Diagram[]; headings:
 interface Environment { diagrams: Diagram[]; headings: Heading[]; copy: string }
 const titles: Record<string, string> = { note: 'NOTE', tip: 'TIP', important: 'IMPORTANT', warning: 'WARNING', caution: 'CAUTION', theorem: '定理', lemma: '引理', definition: '定义', proof: '证明' };
 const escape = escapeHtml;
+const PLACEHOLDER_ALT = /^(image|img|picture|photo|screenshot|图片|图像|截图|配图)$|\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 const kindOf = (s: string) => Object.hasOwn(titles, s.toLowerCase()) ? s.toLowerCase() : 'note';
 function sourceAttr(token: Token) { return token.map ? ` data-dsn-line="${token.map[0] + 1}"` : ''; }
 function callout(kind: string, title: string, attributes = '') {
@@ -49,7 +50,10 @@ export function createMarkdownRenderer(sanitizeRaw: (html: string) => string) {
     if (tokens[index].attrGet('src')?.endsWith('/docs/images/plugin-banner.png')) {
       tokens[index].attrSet('width', '1672'); tokens[index].attrSet('height', '941');
     }
-    return imageRule(tokens, index, options, env, self);
+    // Alt text doubles as a caption, which themes may show; placeholder alts such as file names are left out.
+    const alt = self.renderInlineAsText(tokens[index].children ?? [], options, env).trim();
+    const image = imageRule(tokens, index, options, env, self);
+    return alt && !PLACEHOLDER_ALT.test(alt) ? `<span class="dsn-image">${image}<span class="dsn-image-caption" aria-hidden="true">${escape(alt)}</span></span>` : image;
   };
   md.inline.ruler.before('link', 'ruby', (state, silent) => {
     if (state.src[state.pos] !== '[') return false;

@@ -132,6 +132,8 @@ function PreviewBody({ source, copyLabel = '复制', onHeadings }: {
     setSlots([...article.current!.querySelectorAll('[data-dsn-diagram]')]);
     onHeadings?.(doc.headings);
   }, [doc]);
+  // The headings belong to this preview: they leave with it, so the page never shows another note's contents.
+  useEffect(() => () => onHeadings?.([]), []);
   useEffect(() => {
     const sync = () => {
       const color = getComputedStyle(article.current!).color.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0];

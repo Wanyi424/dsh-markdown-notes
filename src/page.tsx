@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react';
-import { BookOpen, CircleAlert, Columns2, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, PanelLeftClose, PanelLeftOpen, PenLine, Pencil, Plus, RefreshCw, Search, TableOfContents, Trash2, Upload, X, Copy } from 'lucide-react';
+import { BookOpen, CircleAlert, Columns2, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen, PenLine, Pencil, Plus, RefreshCw, Search, TableOfContents, Trash2, Upload, X, Copy } from 'lucide-react';
 import type { NotesController, ViewMode } from './controller';
 import type { Translate } from './dictionaries';
 import type { Heading } from './markdown';
@@ -7,8 +7,8 @@ import { MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_NOTE_BYTES, type ImportFile } f
 import { loadChunk } from './lazy-chunk';
 import { synchronizeScroll, type EditorScrollPort } from './scroll-sync';
 import { FilterResults, FolderTree, NOTE_DRAG, stem, type TreeTarget } from './folder-tree';
-import { Outline, outlineOf } from './outline';
-import { Dialog, LayerContext, Menu, Segmented, Toast, anchorFrom, type MenuAnchor, type MenuEntry } from './ui';
+import { Outline, OutlineRail, outlineOf } from './outline';
+import { Dialog, LayerContext, Menu, Segmented, Toast, anchorFrom, usePresence, type MenuAnchor, type MenuEntry } from './ui';
 import { baseName, parentFolder, inFolder } from './note-path';
 import css from './styles.css';
 
@@ -23,7 +23,13 @@ export interface ClientContext {
   effect(callback: () => (() => void | Promise<void>), label?: string): unknown;
 }
 type DialogState = { kind: 'deleteNote' | 'moveNote' | 'renameFolder' | 'deleteFolder'; path: string } | { kind: 'newFolder'; parent: string } | { kind: 'copy' } | { kind: 'location' };
-const RAIL_KEY = 'dsh-markdown-notes:rail', OUTLINE_KEY = 'dsh-markdown-notes:outline';
+interface OpenMenu { anchor: MenuAnchor; entries: MenuEntry[]; label: string }
+const RAIL_KEY = 'dsh-markdown-notes:rail', OUTLINE_KEY = 'dsh-markdown-notes:outline', THEME_KEY = 'dsh-markdown-notes:preview-theme';
+/** Preview themes change only how the preview looks; the Markdown file is never touched. */
+const THEMES = { default: ['themeDefault', 'themeDefaultHint'], book: ['themeBook', 'themeBookHint'], article: ['themeArticle', 'themeArticleHint'] } as const;
+type PreviewTheme = keyof typeof THEMES;
+const readTheme = (): PreviewTheme => { try { const value = localStorage.getItem(THEME_KEY); return value && value in THEMES ? value as PreviewTheme : 'default'; } catch { return 'default'; } };
+const saveTheme = (theme: PreviewTheme) => { try { localStorage.setItem(THEME_KEY, theme); } catch { /* Preference only. */ } };
 const readFlag = (key: string) => { try { return localStorage.getItem(key) !== 'hidden'; } catch { return true; } };
 const saveFlag = (key: string, shown: boolean) => { try { localStorage.setItem(key, shown ? 'shown' : 'hidden'); } catch { /* Preference only. */ } };
 
@@ -115,12 +121,18 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   // Stable per locale, so memoized children (the tree) do not re-render on every keystroke.
   const t = useMemo(() => ctx.locale.bind(NS), [ctx, locale]);
   const [root, setRoot] = useState<HTMLElement | null>(null), [main, setMain] = useState<HTMLElement | null>(null);
-  const layout = useWidth(root, width => width >= 760 ? 'wide' : width >= 560 ? 'narrow' : 'tiny', 'wide');
-  const roomy = useWidth(main, width => width >= 1000, true);
+  // Unknown until measured (before the first paint), so the rail never renders from a guessed width and then animates away.
+  const layout = useWidth<'wide' | 'narrow' | 'tiny' | null>(root, width => width >= 760 ? 'wide' : width >= 560 ? 'narrow' : 'tiny', null);
+  const roomy = useWidth(main, width => width >= 960, true);
   const [railPref, setRailPref] = useState(() => readFlag(RAIL_KEY)), [railOverlay, setRailOverlay] = useState(false);
   const [outlinePref, setOutlinePref] = useState(() => readFlag(OUTLINE_KEY));
+  const [theme, setTheme] = useState(readTheme), [tocOpen, setTocOpen] = useState(false), tocButton = useRef<HTMLButtonElement>(null);
+  const closeToc = useCallback((restoreFocus: boolean) => { setTocOpen(false); if (restoreFocus) tocButton.current?.focus(); }, []);
   const [dialog, setDialog] = useState<DialogState | null>(null), [dialogError, setDialogError] = useState('');
-  const [menu, setMenu] = useState<{ anchor: MenuAnchor; entries: MenuEntry[]; label: string } | null>(null);
+  const [menu, setMenu] = useState<OpenMenu | null>(null), shownMenu = usePresence(menu);
+  // A trigger's second click closes its own menu; a context menu reopens wherever it was asked for.
+  const openMenu = (next: OpenMenu) => setMenu(current => next.anchor.toggle && current?.anchor.trigger === next.anchor.trigger ? null : next);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState(''), filterInput = useRef<HTMLInputElement>(null);
   const [renaming, setRenaming] = useState(false), [title, setTitle] = useState('');
   const titleInput = useRef<HTMLInputElement>(null), cancelledRename = useRef(false);
@@ -131,7 +143,10 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   const fileInput = useRef<HTMLInputElement>(null), importTarget = useRef(''), importing = useRef(false);
   const dragNote = useRef<string | null>(null), fileDepth = useRef(0);
   const [dragKind, setDragKind] = useState<'files' | 'note' | null>(null), [dropTarget, setDropTarget] = useState<string | null>(null);
-  const wide = layout === 'wide', railShown = wide ? railPref : railOverlay, reading = state.mode === 'preview';
+  const wide = layout === 'wide', railShown = wide ? railPref : railOverlay, reading = state.mode === 'preview', rail = usePresence(railShown);
+  // The rail column animates only after the first frame, so measuring the real width at startup does not slide the page.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => { const frame = requestAnimationFrame(() => setSettled(true)); return () => cancelAnimationFrame(frame); }, []);
   const dirty = state.content !== state.saved;
   useEffect(() => { if (wide) setRailOverlay(false); }, [wide]);
   useEffect(() => {
@@ -146,7 +161,8 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   const deferred = preview.name === state.active ? preview.content : state.content;
   const save = () => { void c.flush().catch(() => {}); };
   useEffect(() => { void c.load(); return () => { void c.flush().catch(() => {}); }; }, [c]);
-  useEffect(() => { readPane.current?.scrollTo({ top: 0 }); setRenaming(false); setHeadings([]); }, [state.active]);
+  useEffect(() => { readPane.current?.scrollTo({ top: 0 }); setRenaming(false); }, [state.active]);
+  useEffect(() => setTocOpen(false), [state.active, state.mode, roomy]);
   useEffect(() => { if (renaming) { titleInput.current?.focus(); titleInput.current?.select(); } }, [renaming]);
   // Leaving the editor removes the focused element; hand focus to the article so Ctrl+E and paging keys keep working.
   // A layout effect runs in the same commit as the removal, so no key press can land on <body> in between.
@@ -203,7 +219,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
     finally { importing.current = false; }
   };
   const pickImport = (folder: string) => { setMenu(null); importTarget.current = folder; fileInput.current?.click(); };
-  const showMenu = (label: string, entries: MenuEntry[]) => (anchor: MenuAnchor) => setMenu({ anchor, entries, label });
+  const showMenu = (label: string, entries: MenuEntry[]) => (anchor: MenuAnchor) => openMenu({ anchor, entries, label });
   const noteEntries = (path: string): MenuEntry[] => [
     ...(path !== state.active ? [{ label: t('open'), icon: <FileText />, onSelect: () => { void c.open(path); picked(); } }] : []),
     { label: t('rename'), icon: <Pencil />, disabled: state.busy, onSelect: () => { if (path === state.active) beginRename(); else void c.open(path).then(ok => { if (ok) beginRename(); }); } },
@@ -241,7 +257,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
       { label: t('newFolder'), icon: <FolderPlus />, disabled: state.busy, onSelect: () => openDialog({ kind: 'newFolder', parent: '' }) },
       { label: t('importMarkdown'), icon: <Upload />, disabled: state.busy, onSelect: () => pickImport('') },
     ] as MenuEntry[];
-    setMenu({ anchor, entries, label: t('moreFor', { name }) });
+    openMenu({ anchor, entries, label: t('moreFor', { name }) });
   };
   const treeMenu = useRef(onTreeMenu); treeMenu.current = onTreeMenu;
   const stableTreeMenu = useCallback((target: TreeTarget, anchor: MenuAnchor) => treeMenu.current(target, anchor), []);
@@ -255,12 +271,20 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
     return found.sort((a, b) => Number(!stem(a.name).toLowerCase().includes(q)) - Number(!stem(b.name).toLowerCase().includes(q))).slice(0, 200);
   }, [state.notes, q]);
   const outline = useMemo(() => outlineOf(headings), [headings]);
-  const canOutline = reading && roomy && outline.length >= 2 && !!state.content, showOutline = canOutline && outlinePref;
+  // Contents: docked beside the article when reading with room for it, otherwise ticks on the right edge of the preview.
+  const previewShown = state.mode !== 'edit' && !!state.content, hasOutline = previewShown && outline.length >= 2, dockable = reading && roomy;
+  const docked = hasOutline && dockable && outlinePref, railed = hasOutline && !docked, tocPressed = dockable ? outlinePref : tocOpen;
+  const toggleOutline = () => { if (dockable) setOutlinePref(shown => { saveFlag(OUTLINE_KEY, !shown); return !shown; }); else setTocOpen(open => !open); };
+  const themeEntries = (): MenuEntry[] => (Object.keys(THEMES) as PreviewTheme[]).map(value => ({
+    label: t(THEMES[value][0]), hint: t(THEMES[value][1]), checked: value === theme, onSelect: () => { setTheme(value); saveTheme(value); },
+  }));
   const status = state.saving ? 'saving' : dirty ? state.error ? 'failed' : 'pending' : 'saved';
   const dropName = dropTarget === null ? '' : dropTarget ? baseName(dropTarget) : t('rootFolder');
   const crumbs = state.active ? parentFolder(state.active).split('/').filter(Boolean) : [];
 
-  return <section ref={setRoot} className="dsn-root" data-layout={layout} data-rail={railShown ? 'shown' : 'hidden'} data-dragging={dragKind ?? undefined} aria-label={t('title')}
+  // Docked, the rail's column animates its width (transitionend on the root); as a drawer, the rail animates itself.
+  return <section ref={setRoot} className="dsn-root" data-layout={layout ?? undefined} data-rail={railShown ? 'shown' : 'hidden'} data-animate={settled || undefined} data-dragging={dragKind ?? undefined} aria-label={t('title')}
+    onTransitionEnd={event => { if (event.target === event.currentTarget && event.propertyName === 'grid-template-columns') rail.settle(); }}
     onDragEnterCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); fileDepth.current++; setDragKind('files'); } }}
     onDragOverCapture={event => {
       const types = event.dataTransfer.types;
@@ -294,7 +318,8 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
     <style>{css}</style>
     <LayerContext.Provider value={root}>
       <input ref={fileInput} type="file" accept=".md,.markdown,text/markdown" multiple hidden onChange={event => { void importFiles([...(event.target.files ?? [])], importTarget.current); event.target.value = ''; }} />
-      {railShown && <aside className="dsn-rail" data-overlay={!wide || undefined} aria-label={t('list')}>
+      {rail.value && <div className="dsn-rail-slot"><aside className="dsn-rail" data-overlay={!wide || undefined} data-leaving={rail.leaving || undefined} inert={rail.leaving} aria-label={t('list')}
+        onAnimationEnd={event => { if (rail.leaving && event.target === event.currentTarget) rail.settle(); }}>
         <header className="dsn-rail-head">
           <h1>{t('title')}</h1>
           <button type="button" className="dsn-icon-button" aria-label={t('new')} title={t('newIn', { folder: state.folder ? baseName(state.folder) : t('rootFolder') })} disabled={state.busy} onClick={() => void create()}><Plus /></button>
@@ -314,8 +339,8 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
             : <FolderTree c={c} t={t} notes={state.notes} folders={state.folders} expanded={state.expanded} active={state.active} folder={state.folder} folderFocus={state.folderFocus}
               busy={state.busy} dropTarget={dropTarget} onMenu={stableTreeMenu} onCreateIn={createIn} onRename={beginRename} onDragNote={onDragNote} onPicked={picked} />}
         </div>
-      </aside>}
-      {railShown && !wide && <button type="button" className="dsn-scrim" aria-label={t('hideList')} onClick={() => setRailOverlay(false)} />}
+      </aside></div>}
+      {rail.value && !wide && <button type="button" className="dsn-scrim" data-leaving={rail.leaving || undefined} aria-label={t('hideList')} onClick={() => setRailOverlay(false)} />}
       <main ref={setMain} className="dsn-main" aria-busy={state.busy}>
         <header className="dsn-bar">
           <button type="button" className="dsn-icon-button" title={t(railShown ? 'hideList' : 'showList')} aria-label={t(railShown ? 'hideList' : 'showList')} onClick={toggleRail}>{railShown ? <PanelLeftClose /> : <PanelLeftOpen />}</button>
@@ -331,8 +356,10 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
           </div>}
           {state.active && <>
             <span className="dsn-save" data-state={status} aria-live="polite"><i aria-hidden />{t(status)}</span>
-            {canOutline && <button type="button" className="dsn-icon-button" aria-pressed={showOutline} aria-label={t(showOutline ? 'hideOutline' : 'showOutline')} title={t(showOutline ? 'hideOutline' : 'showOutline')}
-              onClick={() => setOutlinePref(shown => { saveFlag(OUTLINE_KEY, !shown); return !shown; })}><TableOfContents /></button>}
+            {hasOutline && <button ref={tocButton} type="button" className="dsn-button dsn-tool" data-outline-toggle aria-pressed={tocPressed} title={t(tocPressed ? 'hideOutline' : 'showOutline')}
+              onClick={toggleOutline}><TableOfContents /><span>{t('outline')}</span></button>}
+            {previewShown && <button type="button" className="dsn-button dsn-tool dsn-theme-tool" aria-haspopup="menu" title={t('themeMenu')}
+              onClick={event => showMenu(t('themeMenu'), themeEntries())(anchorFrom(event.currentTarget))}><Palette /><span>{t('previewTheme')}</span></button>}
             <Segmented<ViewMode> label={t('modeLabel')} value={state.mode} disabled={state.busy} onChange={mode => void c.setMode(mode)} options={[
               { value: 'preview', label: t('read'), icon: <BookOpen />, title: `${t('read')} · Ctrl+E` },
               { value: 'edit', label: t('edit'), icon: <PenLine />, title: `${t('edit')} · Ctrl+E` },
@@ -352,22 +379,23 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
             {!reading && <div className="dsn-source-pane"><Suspense fallback={<p className="dsn-rendering">…</p>}>
               <MarkdownEditor key={state.active} value={state.content} disabled={state.busy} label={t('content')} placeholder={t('placeholder')} onChange={value => c.edit(value)} onSave={save} onReady={setEditorPort} />
             </Suspense></div>}
-            {state.mode !== 'edit' && <div className="dsn-reading-pane" ref={readingRef} tabIndex={-1}>
+            {state.mode !== 'edit' && <div className="dsn-reading" data-rail={railed || undefined}><div className={`dsn-reading-pane dsn-theme-${theme}`} ref={readingRef} tabIndex={-1}>
               <div className="dsn-reading-layout">
                 <div className="dsn-reading-main">
                   {state.content ? <Suspense fallback={<p className="dsn-rendering">…</p>}><MarkdownPreview key={state.active} source={deferred} copyLabel={t('copyCode')} onHeadings={setHeadings} /></Suspense>
                     : <div className="dsn-blank"><FileText /><h2>{t('blankTitle')}</h2><p>{t('blankHint')}</p>
                       <button type="button" className="dsn-button dsn-button-secondary" onClick={() => void c.setMode('edit')}><PenLine />{t('edit')}</button></div>}
                 </div>
-                {showOutline && <Outline headings={outline} pane={previewPane} label={t('outline')} />}
+                {docked && <Outline headings={outline} pane={previewPane} label={t('outline')} />}
               </div>
-            </div>}
+            </div>
+            {railed && <OutlineRail headings={outline} pane={previewPane} label={t('outline')} open={tocOpen} onClose={closeToc} />}</div>}
           </div>
           {!reading && <footer className="dsn-status"><span>{t('characters', { count: state.content.length.toLocaleString() })} · {t('lines', { count: countLines(state.content).toLocaleString() })}</span><span>{t('autosaveHint')}</span></footer>}
         </> : <div className="dsn-welcome">
           {!state.loaded && state.busy ? <><LoaderCircle className="dsn-spin" /><p>{t('loading')}</p></> : <>
             <span className="dsn-welcome-mark"><NotebookPen /></span><h2>{t('empty')}</h2><p>{t('emptyHint')}</p>
-            <div className="dsn-row">
+            <div className="dsn-actions">
               <button type="button" className="dsn-button dsn-button-primary" disabled={state.busy} onClick={() => void create()}><Plus />{t('new')}</button>
               <button type="button" className="dsn-button dsn-button-secondary" disabled={state.busy} onClick={() => pickImport(state.folder)}><Upload />{t('importMarkdown')}</button>
             </div>
@@ -375,7 +403,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
         </div>}
       </main>
       <Toast message={state.notice} closeLabel={t('close')} onDismiss={c.dismissNotice} />
-      {menu && <Menu anchor={menu.anchor} entries={menu.entries} label={menu.label} onClose={() => setMenu(null)} />}
+      {shownMenu.value && <Menu anchor={shownMenu.value.anchor} entries={shownMenu.value.entries} label={shownMenu.value.label} onClose={closeMenu} leaving={shownMenu.leaving} onExited={shownMenu.settle} />}
       {dialog && (dialog.kind === 'deleteNote' || dialog.kind === 'deleteFolder') && <ConfirmDialog t={t} busy={state.busy} error={dialogError} onClose={closeDialog} onSubmit={() => void submit()}
         title={t(dialog.kind === 'deleteNote' ? 'deleteTitle' : 'deleteFolder')} body={t(dialog.kind === 'deleteNote' ? 'deleteHint' : 'deleteFolderHint', { name: dialog.kind === 'deleteNote' ? stem(dialog.path) : dialog.path })} />}
       {dialog?.kind === 'moveNote' && <MoveDialog path={dialog.path} folders={state.folders} t={t} busy={state.busy} error={dialogError} onClose={closeDialog} onSubmit={value => void submit(value)} />}

@@ -30,3 +30,8 @@ test('syntax samples inside code fences stay literal; malformed math does not ab
   assert.ok(!doc.html.includes('<ruby>'));
   assert.ok(doc.html.includes('Still readable'));
 });
+test('descriptive alt text becomes an image caption; placeholder alts do not', () => {
+  const doc = render('![河边的晚霞](a.png)\n\n![IMG_2024.jpg](b.jpg)\n\n![](c.png)\n');
+  assert.equal(doc.html.match(/class="dsn-image-caption"/g)?.length, 1);
+  assert.ok(doc.html.includes('<span class="dsn-image-caption" aria-hidden="true">河边的晚霞</span>'));
+});

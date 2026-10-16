@@ -1,19 +1,31 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, FileText, Folder, FolderOpen, Library, MoreHorizontal, Plus } from 'lucide-react';
 import type { NotesController } from './controller';
 import type { NoteSummary } from './contracts';
 import type { Translate } from './dictionaries';
 import { baseName, parentFolder } from './note-path';
-import { anchorAt, anchorFrom, type MenuAnchor } from './ui';
+import { anchorAt, anchorFrom, usePresence, type MenuAnchor } from './ui';
 
 export interface TreeTarget { kind: 'note' | 'folder' | 'root'; path: string }
 export const NOTE_DRAG = 'application/x-dsn-note';
 export const stem = (path: string) => baseName(path).replace(/\.md$/i, '');
 const depthStyle = (depth: number) => ({ '--depth': Math.min(depth, 10) } as React.CSSProperties);
 
+/**
+ * Keeps a folder's children mounted while they fold away, so collapsing animates as well as expanding.
+ * The closing subtree is inert: it cannot take focus or clicks during its last frames.
+ */
+function Collapse({ open, children }: { open: boolean; children: () => React.ReactNode }) {
+  const { value: mounted, leaving, settle } = usePresence(open);
+  // Children are built only while shown: a large library's collapsed folders cost nothing.
+  if (!mounted) return null;
+  return <div className="dsn-collapse" data-open={open || undefined} inert={leaving}
+    onTransitionEnd={event => { if (event.target === event.currentTarget && event.propertyName === 'grid-template-rows') settle(); }}>{children()}</div>;
+}
+
 /** Arrow keys walk the visible rows; Right/Left open, close or climb folders, as in a file explorer. */
 function navigate(event: React.KeyboardEvent<HTMLElement>, c: NotesController, expanded: Set<string>) {
-  const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.dsn-row-main')];
+  const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.dsn-row-main')].filter(row => !row.closest('[inert]'));
   const current = document.activeElement as HTMLButtonElement, index = rows.indexOf(current);
   if (index < 0) return;
   const row = current.closest<HTMLElement>('[data-folder],[data-note]'), folder = row?.dataset.folder;
@@ -48,6 +60,9 @@ export const FolderTree = memo(function FolderTree({ c, t, notes, folders, expan
     return result;
   }, [notes, folders]);
   const expanded = useMemo(() => new Set(open), [open]);
+  // Folders that are already open when the tree appears do not play their opening animation.
+  const [animate, setAnimate] = useState(false);
+  useEffect(() => { const frame = requestAnimationFrame(() => setAnimate(true)); return () => cancelAnimationFrame(frame); }, []);
   const menu = (target: TreeTarget) => (event: React.MouseEvent) => { event.preventDefault(); onMenu(target, anchorAt(event)); };
   const render = (parent: string, depth: number): React.ReactNode => {
     const group = children.get(parent);
@@ -67,7 +82,7 @@ export const FolderTree = memo(function FolderTree({ c, t, notes, folders, expan
                 onClick={event => onMenu({ kind: 'folder', path }, anchorFrom(event.currentTarget))}><MoreHorizontal /></button>
             </span>
           </div>
-          {isOpen && render(path, depth + 1)}
+          <Collapse open={isOpen}>{() => render(path, depth + 1)}</Collapse>
         </li>;
       })}
       {group?.notes.map(path => {
@@ -89,7 +104,7 @@ export const FolderTree = memo(function FolderTree({ c, t, notes, folders, expan
       {parent && !group?.folders.length && !group?.notes.length && <li className="dsn-tree-empty" style={depthStyle(depth)}>{t('emptyFolder')}</li>}
     </ul>;
   };
-  return <nav className="dsn-tree" aria-label={t('list')} onKeyDown={event => navigate(event, c, expanded)}>
+  return <nav className="dsn-tree" aria-label={t('list')} data-animate={animate || undefined} onKeyDown={event => navigate(event, c, expanded)}>
     <div className="dsn-row dsn-root-row" data-folder="" data-selected={(folderFocus && folder === '') || undefined} data-drop={dropTarget === '' || undefined}>
       <button type="button" className="dsn-row-main" aria-label={t('libraryRoot')} disabled={busy} onClick={() => c.selectFolder('')} onContextMenu={menu({ kind: 'root', path: '' })}>
         <Library /><span>{t('libraryRoot')}</span><small>{notes.length}</small>

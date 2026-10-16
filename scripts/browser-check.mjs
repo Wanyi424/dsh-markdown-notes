@@ -77,10 +77,11 @@ try {
   await shot('diagrams-light');
   await page.locator('.dsn-diagram').last().scrollIntoViewIfNeeded();
   await shot('infographic-light');
-  await page.getByRole('button', { name: '隐藏大纲', exact: true }).click();
-  await page.locator('.dsn-outline').waitFor({ state: 'detached' });
-  await page.getByRole('button', { name: '显示大纲', exact: true }).click();
-  await page.locator('.dsn-outline').waitFor();
+  // The labeled 大纲 button docks and undocks the list; undocked, the ticks on the right edge remain.
+  const tocButton = page.getByRole('button', { name: '大纲', exact: true });
+  await tocButton.click(); await page.locator('.dsn-outline').waitFor({ state: 'detached' });
+  await page.locator('.dsn-outline-ticks i[data-active]').waitFor();
+  await tocButton.click(); await page.locator('.dsn-outline').waitFor();
 
   // Editing and synchronized split scrolling.
   await mode('编辑').click();
@@ -88,6 +89,7 @@ try {
   await shot('editing-light');
   await mode('并排').click();
   await page.locator('.dsn-mode-split .dsn-prose [data-dsn-line]').first().waitFor();
+  await page.locator('.dsn-mode-split .dsn-outline-ticks').waitFor();
   await page.locator('.cm-scroller').dispatchEvent('pointerdown');
   await page.locator('.cm-scroller').evaluate(el => { el.scrollTop = (el.scrollHeight - el.clientHeight) * .35; });
   await page.waitForFunction(() => document.querySelector('.dsn-reading-pane').scrollTop > 100);
@@ -129,17 +131,72 @@ try {
   await page.waitForTimeout(500);
   await shot('reading-dark');
   await page.setViewportSize({ width: 1100, height: 800 });
+  await dark(false);
+  // Too narrow to dock: ticks on the right edge. Hovering peeks the list; the toolbar pins it, a pick jumps and closes it.
+  await page.locator('.dsn-outline-ticks').waitFor(); assert.equal(await page.locator('.dsn-outline').count(), 0);
+  await page.locator('.dsn-outline-ticks').hover(); await page.locator('.dsn-outline-panel').waitFor({ state: 'visible' });
+  await shot('compact-peek');
+  await page.mouse.move(300, 500); await page.locator('.dsn-outline-panel').waitFor({ state: 'hidden' });
+  await tocButton.click(); await page.locator('.dsn-outline-float[data-open]').waitFor();
+  await page.waitForFunction(() => document.activeElement?.closest('.dsn-outline-panel') !== null);
+  // The list scrolls vertically only and shows no scrollbar.
+  const panelBox = await page.locator('.dsn-outline-panel').evaluate(el => ({ sideways: el.scrollWidth - el.clientWidth, x: getComputedStyle(el).overflowX, bar: getComputedStyle(el).scrollbarWidth }));
+  assert.deepEqual(panelBox, { sideways: 0, x: 'hidden', bar: 'none' });
+  await page.locator('.dsn-outline-panel a').filter({ hasText: '结语' }).click();
+  await page.locator('.dsn-outline-float[data-open]').waitFor({ state: 'detached' });
+  await page.waitForFunction(() => document.querySelector('.dsn-outline-ticks i[data-active]') === document.querySelector('.dsn-outline-ticks i:last-child'));
+  await tocButton.click(); await page.locator('.dsn-outline-float[data-open]').waitFor();
+  await page.keyboard.press('Escape'); await page.locator('.dsn-outline-float[data-open]').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), '大纲');
+  await page.evaluate(() => { document.querySelector('.dsn-reading-pane').scrollTop = 0; }); await page.waitForTimeout(300);
+  await dark(true);
   await shot('compact');
   await page.setViewportSize({ width: 420, height: 820 });
   await page.locator('.dsn-root[data-layout="tiny"]').waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await shot('narrow');
+  // Entering at a narrow width never renders the rail: the width is measured before the first paint, so no drawer slides away.
+  await page.evaluate(() => document.getElementById('close-notes').click());
+  await page.evaluate(() => { window.__sawRail = false; new MutationObserver(() => { if (document.querySelector('.dsn-rail')) window.__sawRail = true; }).observe(document.body, { subtree: true, childList: true }); });
+  await page.evaluate(() => document.getElementById('open-notes').click());
+  await page.locator('.dsn-root[data-layout="tiny"] .dsn-prose h1').waitFor(); await page.waitForTimeout(500);
+  assert.equal(await page.evaluate(() => window.__sawRail), false, 'no rail flashes when entering narrow');
   await page.getByRole('button', { name: '展开笔记列表', exact: true }).click();
   await page.locator('.dsn-rail[data-overlay]').waitFor(); await shot('narrow-list');
-  // Click the uncovered strip beside the drawer.
-  await page.locator('.dsn-scrim').click({ position: { x: 400, y: 400 } }); await page.locator('.dsn-rail').waitFor({ state: 'detached' });
+  // Click the uncovered strip beside the drawer: it slides back out (inert while leaving), then leaves the DOM.
+  await page.locator('.dsn-scrim').click({ position: { x: 400, y: 400 } });
+  await page.locator('.dsn-rail[data-leaving][inert]').waitFor({ state: 'attached' }); await page.locator('.dsn-rail').waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 1584, height: 992 });
   await dark(false);
+  // Docked, the rail folds its column away and stays mounted (inert) until the column transition ends.
+  await page.locator('.dsn-rail').waitFor();
+  await page.getByRole('button', { name: '收起笔记列表', exact: true }).click();
+  await page.locator('.dsn-rail[data-leaving][inert]').waitFor({ state: 'attached' }); await page.locator('.dsn-rail').waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: '展开笔记列表', exact: true }).click(); await page.locator('.dsn-tree').waitFor();
+
+  // Preview themes: a remembered choice that changes only how the preview looks.
+  const theme = async name => {
+    await page.getByRole('button', { name: '主题', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
+  };
+  const top = () => page.evaluate(() => { document.querySelector('.dsn-reading-pane').scrollTop = 0; });
+  await page.getByRole('button', { name: '主题', exact: true }).click(); await page.getByRole('menu', { name: '预览主题' }).waitFor();
+  await shot('theme-menu');
+  // Scrolling the article does not carry a toolbar menu's anchor away, so the menu stays open.
+  await page.locator('.dsn-reading-pane').evaluate(el => { el.scrollTop = 600; }); await page.waitForTimeout(400);
+  assert.equal(await page.getByRole('menu', { name: '预览主题' }).count(), 1, 'toolbar menu survives an article scroll');
+  await page.keyboard.press('Escape');
+  await theme('书刊'); await page.locator('.dsn-theme-book').waitFor(); await top(); await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => localStorage.getItem('dsh-markdown-notes:preview-theme')), 'book');
+  await shot('theme-book');
+  await page.locator('.dsn-prose blockquote').nth(2).scrollIntoViewIfNeeded(); await shot('theme-book-quote');
+  await dark(true); await top(); await page.waitForTimeout(300); await shot('theme-book-dark'); await dark(false);
+  await theme('公众号'); await page.locator('.dsn-theme-article').waitFor(); await top(); await page.waitForTimeout(300);
+  await shot('theme-article');
+  await page.locator('.dsn-code').nth(1).scrollIntoViewIfNeeded(); await shot('theme-article-code');
+  await dark(true); await top(); await page.waitForTimeout(300); await shot('theme-article-dark'); await dark(false);
+  await theme('默认'); await page.locator('.dsn-theme-default').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('dsh-markdown-notes:preview-theme')), 'default');
 
   // Create, format, rename, reload, delete.
   await page.getByRole('button', { name: '新建笔记', exact: true }).click();
@@ -170,13 +227,17 @@ try {
   await shot('filter');
   await page.getByRole('searchbox', { name: '筛选笔记' }).press('Enter');
   await page.locator('.dsn-document-title').filter({ hasText: 'Markdown 内容示例' }).waitFor();
+  // Switching notes keeps the contents: the new preview reports its headings after the old one clears them.
+  await page.locator('.dsn-outline a').first().waitFor();
+  assert.ok(await page.locator('.dsn-outline a').count() >= 5, 'contents survive a note switch');
   await page.getByRole('searchbox', { name: '筛选笔记' }).press('Escape');
   await page.locator('.dsn-tree').waitFor();
   // Context menu on a tree row.
   await page.locator('.dsn-note').filter({ hasText: '浏览器验收' }).click({ button: 'right' });
   await page.getByRole('menu', { name: '浏览器验收 的更多操作' }).waitFor();
   await shot('tree-menu');
-  await page.keyboard.press('Escape'); await page.getByRole('menu').waitFor({ state: 'detached' });
+  await page.keyboard.press('Escape');
+  await page.locator('.dsn-menu[data-leaving]').waitFor({ state: 'attached' }); await page.locator('.dsn-menu').waitFor({ state: 'detached' });
   const firstSessionLongTasks = await page.evaluate(() => [...window.__longTasks]);
   await page.reload();
   await page.locator('#open-notes').click();
@@ -187,7 +248,9 @@ try {
   await shot('document-menu');
   await page.getByRole('menuitem', { name: '删除', exact: true }).click();
   await shot('delete-dialog');
-  await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
+  // Esc fades the dialog out before it closes.
+  await page.keyboard.press('Escape');
+  await page.locator('dialog[data-leaving]').waitFor({ state: 'attached' }); await page.locator('dialog[open]').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.dsn-note').filter({ hasText: '浏览器验收' }).count(), 1);
   await documentAction('删除');
   await page.getByRole('dialog').getByRole('button', { name: '删除', exact: true }).click();
@@ -232,7 +295,7 @@ try {
   const result = { ...report, entryBytes, pageBytes, readingReadyMs, idleRequests,
     longTasks: [...firstSessionLongTasks, ...await page.evaluate(() => window.__longTasks)],
     lazyLoading: 'entry only before opening; editor/diagram chunks absent until used',
-    outline: `${outlineLinks} sections, click navigation and scroll spy passed`, filter: 'title match, Enter opens, Esc clears', contextMenu: 'passed', editingShortcut: 'Ctrl+E toggles reading and the last editing layout',
+    outline: `${outlineLinks} sections, click navigation and scroll spy passed; ticks with peek and pinned list where it cannot dock; survives note switches`, motion: 'rail column and drawer, menus and dialogs animate out before unmounting', themes: 'default / book / article, remembered', filter: 'title match, Enter opens, Esc clears', contextMenu: 'passed', editingShortcut: 'Ctrl+E toggles reading and the last editing layout',
     migration: 'copied files, committed settings, deleted empty old folder', dragImport: 'passed including name collisions', explorerDispatch: 'active directory verified; OS window mocked',
     largeDocumentGuard: 'passed', closedPanelRequests: 0,
     synchronizedScroll: { editorToPreview, reverseOffset, endpoints: 'passed', noOscillation: 'passed' },

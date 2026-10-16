@@ -51,7 +51,9 @@ try {
   assert.deepEqual(await page.locator('.dsn-crumb').allInnerTexts(), ['工作', '项目 A']);
   // Clicking a folder row selects it and toggles it.
   await page.getByRole('button', { name: '文件夹 工作', exact: true }).click();
-  assert.equal(await page.locator('.dsn-note').count(), 0);
+  // Folding animates: the closing rows stay for the transition, inert, then leave the DOM.
+  await page.locator('.dsn-collapse[inert]:not([data-open])').waitFor({ state: 'attached' });
+  await page.waitForFunction(() => document.querySelectorAll('.dsn-note').length === 0);
   await page.getByRole('button', { name: '文件夹 工作', exact: true }).click();
   await page.locator('.dsn-note').first().waitFor();
   // Hover actions on a folder row: the "+" creates a note right there.
@@ -82,12 +84,28 @@ try {
   await page.locator('[data-note="未命名笔记.md"]').dragTo(folderRow('归档'));
   await page.locator('[data-note="归档/未命名笔记.md"]').waitFor();
   assert.ok((await readFile(join(library, '归档', '未命名笔记.md'), 'utf8')).includes('真实文件夹'));
+  // Rows of one level share an icon column (notes reserve the chevron slot), and every guide runs through its folder's chevron.
+  const geometry = await page.evaluate(() => {
+    const center = element => { const r = element.getBoundingClientRect(); return r.left + r.width / 2; };
+    const rows = [...document.querySelectorAll('.dsn-tree li > .dsn-row')].map(row => [getComputedStyle(row).getPropertyValue('--depth').trim(), center(row.querySelector('.dsn-row-main svg:not(.dsn-chevron)'))]);
+    const guides = [...document.querySelectorAll('.dsn-tree-group .dsn-tree-group')].map(group => [center(group.closest('li').querySelector(':scope > .dsn-row .dsn-chevron')), group.getBoundingClientRect().left + parseFloat(getComputedStyle(group, '::before').left) + .5]);
+    return { rows, guides };
+  });
+  const columns = new Map(); for (const [depth, x] of geometry.rows) (columns.get(depth) ?? columns.set(depth, []).get(depth)).push(x);
+  assert.ok(geometry.rows.some(([depth]) => depth === '1') && [...columns.values()].every(xs => Math.max(...xs) - Math.min(...xs) < .5), 'icons of one level align');
+  assert.ok(geometry.guides.length >= 2 && geometry.guides.every(([chevron, line]) => Math.abs(chevron - line) < .75), 'guides run through the parent chevron');
   await createFolder('可删除');
   await folderAction('归档/项目 A/可删除', '删除空文件夹');
   await dialog.getByRole('button', { name: '删除', exact: true }).click(); await dialog.waitFor({ state: 'hidden' });
   await assert.rejects(lstat(join(library, '归档', '项目 A', '可删除')), { code: 'ENOENT' });
   await page.locator('[data-note="归档/项目 A/导入.md"] .dsn-row-main').click({ button: 'right' });
   await page.getByRole('menu').waitFor(); await shot('note-menu'); await page.keyboard.press('Escape');
+  // A "⋯" button toggles its own menu, which sits flush with it from the first frame.
+  const libraryButton = page.getByRole('button', { name: '笔记库操作', exact: true });
+  await libraryButton.click(); await page.getByRole('menu').waitFor();
+  const [menuBox, buttonBox] = [await page.getByRole('menu').boundingBox(), await libraryButton.boundingBox()];
+  assert.ok(Math.abs(menuBox.x + menuBox.width - buttonBox.x - buttonBox.width) < 1, 'menu right edge aligns with its trigger');
+  await libraryButton.click(); await page.getByRole('menu').waitFor({ state: 'detached' }); await page.mouse.move(900, 600);
   await shot('folders-light');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await shot('folders-dark');
@@ -113,7 +131,7 @@ try {
   await page.locator('#close-notes').click(); await page.waitForTimeout(500);
   const count = requests.length; await page.waitForTimeout(500); assert.equal(requests.length, count);
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  console.log(JSON.stringify({ nestedCreate: true, selectedFolderHighlighted: true, rowToggle: true, renameActiveAncestor: true, refuseNonemptyDelete: true, moveToRoot: true, importToFolder: true, dragMoveNote: true, deleteEmptyFolder: true, migrateAndReload: true, backgroundRequests: 0, errors, external }, null, 2));
+  console.log(JSON.stringify({ nestedCreate: true, selectedFolderHighlighted: true, rowToggle: true, renameActiveAncestor: true, refuseNonemptyDelete: true, moveToRoot: true, importToFolder: true, dragMoveNote: true, treeAlignment: true, menuToggle: true, foldingAnimation: true, deleteEmptyFolder: true, migrateAndReload: true, backgroundRequests: 0, errors, external }, null, 2));
 } catch (error) {
   await harness?.page.screenshot({ path: join(output, 'failure.png') }).catch(() => {});
   if (harness?.errors.length) console.error('Page errors:\n' + harness.errors.join('\n'));
