@@ -114,11 +114,11 @@ test('controller and API save drafts before folder rename or note move and prese
   const controller = new NotesController(api, 60_000); t.after(() => controller.dispose());
   await controller.load(); controller.edit('pending draft');
   controller.selectFolder('工作');
-  assert.equal(await controller.renameFolder('新工作'), true);
+  assert.equal(await controller.renameFolder('工作', '新工作'), true);
   assert.equal(controller.getSnapshot().active, '新工作/项目/笔记.md');
   assert.equal(controller.getSnapshot().content, 'pending draft');
   controller.edit('move with draft');
-  assert.equal(await controller.move(''), true);
+  assert.equal(await controller.moveNote(controller.getSnapshot().active!, ''), true);
   assert.equal(controller.getSnapshot().active, '笔记.md');
   assert.equal((await store.read('笔记')).content, 'move with draft');
   controller.selectFolder('新工作/项目');
@@ -126,11 +126,11 @@ test('controller and API save drafts before folder rename or note move and prese
   assert.equal(controller.getSnapshot().active, '新工作/项目/新笔记.md');
   assert.equal(await controller.createFolder('空目录'), true);
   assert.equal(controller.getSnapshot().folder, '新工作/项目/空目录');
-  assert.equal(await controller.deleteFolder(), true);
+  assert.equal(await controller.deleteFolder('新工作/项目/空目录'), true);
   assert.equal(controller.getSnapshot().folder, '新工作/项目');
   controller.edit('retain this');
   api.save = async () => { throw new Error('disk full'); };
-  assert.equal(await controller.move(''), false);
+  assert.equal(await controller.moveNote(controller.getSnapshot().active!, ''), false);
   assert.equal(controller.getSnapshot().active, '新工作/项目/新笔记.md');
   assert.equal(controller.getSnapshot().content, 'retain this');
   api.save = async (name, content, previous) => store.save(name, content, previous);

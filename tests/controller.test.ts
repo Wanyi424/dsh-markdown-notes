@@ -111,3 +111,31 @@ test('reader is the default, new notes open for editing, and finishing waits for
   assert.equal(await controller.setMode('preview'), true);
   assert.equal(files.get('new.md'), 'new content');
 });
+
+test('tree actions on another note keep the open draft and its selection', async t => {
+  const { controller, files } = fixture();
+  t.after(() => controller.dispose());
+  await controller.load(); controller.edit('draft a');
+  // The fake API keeps names verbatim; the real store appends .md to the title.
+  assert.equal(await controller.renameNote('b.md', 'b2.md'), true);
+  assert.equal(files.get('a.md'), 'draft a', 'the open draft is saved before any tree operation');
+  assert.equal(files.get('b2.md'), 'second');
+  assert.equal(await controller.moveNote('b2.md', 'archive'), true);
+  assert.equal(files.get('archive/b2.md'), 'second');
+  assert.equal(controller.getSnapshot().notice, '已移动到「archive」');
+  assert.equal(await controller.deleteNote('archive/b2.md'), true);
+  assert.equal(files.has('archive/b2.md'), false);
+  assert.equal(controller.getSnapshot().active, 'a.md');
+  assert.equal(controller.getSnapshot().content, 'draft a');
+});
+
+test('toggling editing returns to the last editing layout', async t => {
+  const { controller } = fixture();
+  t.after(() => controller.dispose());
+  await controller.load();
+  await controller.setMode('split');
+  assert.equal(await controller.toggleEditing(), true);
+  assert.equal(controller.getSnapshot().mode, 'preview');
+  await controller.toggleEditing();
+  assert.equal(controller.getSnapshot().mode, 'split');
+});

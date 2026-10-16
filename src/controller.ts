@@ -4,17 +4,18 @@ import { baseName, parentFolder, inFolder, withinFolder } from './note-path';
 export type ViewMode = 'edit' | 'split' | 'preview';
 export interface NotesState {
   directory: string; notes: NoteSummary[]; active: string | null;
-  folders: string[]; folder: string; expanded: string[];
+  /** Target for new notes and imports; folderFocus marks it as explicitly picked in the tree. */
+  folders: string[]; folder: string; folderFocus: boolean; expanded: string[];
   content: string; saved: string; saving: boolean; busy: boolean;
-  loaded: boolean; error: string; notice: string; mode: ViewMode;
+  loaded: boolean; error: string; notice: string; mode: ViewMode; lastEdit: 'edit' | 'split';
 }
 
 /** Owned by the plugin, not by the page: leaving the panel does not discard a draft. */
 export class NotesController {
   private state: NotesState = {
     directory: '', notes: [], active: null, content: '', saved: '', saving: false,
-    folders: [], folder: '', expanded: [],
-    busy: false, loaded: false, error: '', notice: '', mode: 'preview',
+    folders: [], folder: '', folderFocus: false, expanded: [],
+    busy: false, loaded: false, error: '', notice: '', mode: 'preview', lastEdit: 'edit',
   };
   private listeners = new Set<() => void>();
   private timer?: ReturnType<typeof setTimeout>;
@@ -33,7 +34,8 @@ export class NotesController {
   get dirty() { return this.state.content !== this.state.saved; }
   private fail(error: unknown) { this.patch({ error: error instanceof Error ? error.message : String(error) }); }
   reportError(message: string) { this.patch({ error: message }); }
-  dismissNotice() { this.patch({ notice: '' }); }
+  dismissError = () => { if (this.state.error) this.patch({ error: '' }); };
+  dismissNotice = () => { if (this.state.notice) this.patch({ notice: '' }); };
   private reveal(folder: string) {
     const expanded = new Set(this.state.expanded);
     for (let path = folder; path; path = parentFolder(path)) expanded.add(path);
@@ -41,24 +43,26 @@ export class NotesController {
   }
   private select(note: Note) {
     const folder = parentFolder(note.name);
-    this.patch({ active: note.name, content: note.content, saved: note.content, folder, expanded: this.reveal(folder) });
+    this.patch({ active: note.name, content: note.content, saved: note.content, folder, folderFocus: false, expanded: this.reveal(folder) });
   }
   selectFolder(folder: string) {
     if (this.state.busy || (folder && !this.state.folders.includes(folder))) return;
-    this.patch({ folder, expanded: this.reveal(folder) });
+    this.patch({ folder, folderFocus: true, expanded: this.reveal(folder) });
   }
-  toggleFolder(folder: string) {
+  toggleFolder(folder: string, open?: boolean) {
     const expanded = new Set(this.state.expanded);
-    if (expanded.has(folder)) expanded.delete(folder); else expanded.add(folder);
+    if (open ?? !expanded.has(folder)) expanded.add(folder); else expanded.delete(folder);
     this.patch({ expanded: [...expanded] });
   }
   async setMode(mode: ViewMode) {
     if (mode === 'preview') {
       return this.operation(async () => { this.patch({ mode }); });
     }
-    this.patch({ mode });
+    this.patch({ mode, lastEdit: mode });
     return true;
   }
+  /** Ctrl+E: reading goes back to the last editing layout, editing finishes to reading. */
+  toggleEditing() { return this.setMode(this.state.mode === 'preview' ? this.state.lastEdit : 'preview'); }
   edit(content: string) {
     if (this.state.busy || this.disposed || !this.state.active) return;
     this.patch({ content });
@@ -117,64 +121,64 @@ export class NotesController {
   open(name: string) {
     return this.operation(async () => { this.select(await this.api.read(name)); this.patch({ mode: 'preview' }); });
   }
-  create(name: string) {
+  create(name: string, folder = this.state.folder) {
     return this.operation(async () => {
-      this.select(await this.api.create(inFolder(this.state.folder, name)));
+      this.select(await this.api.create(inFolder(folder, name)));
       await this.list();
-      this.patch({ loaded: true, mode: 'edit' });
+      this.patch({ loaded: true, mode: 'edit', lastEdit: 'edit' });
     });
   }
-  rename(name: string) {
+  /** Rename keeps the note in its folder; any note can be renamed, not only the open one. */
+  renameNote(path: string, name: string) {
     return this.operation(async () => {
-      if (!this.state.active) return;
-      if (/[\/\\]/.test(name)) throw new Error('名称不能包含路径；请使用“移动到文件夹”。');
-      this.select(await this.api.rename(this.state.active, inFolder(parentFolder(this.state.active), name)));
-      await this.list();
-    });
-  }
-  move(folder: string) {
-    return this.operation(async () => {
-      if (!this.state.active) return;
-      this.select(await this.api.rename(this.state.active, inFolder(folder, baseName(this.state.active))));
+      if (/[\/\\]/.test(name)) throw new Error('名称不能包含路径；请使用“移动到…”。');
+      const note = await this.api.rename(path, inFolder(parentFolder(path), name));
+      if (path === this.state.active) this.select(note);
       await this.list();
     });
   }
-  createFolder(name: string) {
+  moveNote(path: string, folder: string) {
     return this.operation(async () => {
-      if (/[\/\\]/.test(name)) throw new Error('请输入单个文件夹名称。');
-      const folder = await this.api.createFolder(inFolder(this.state.folder, name.trim()));
+      if (parentFolder(path) === folder) return;
+      const note = await this.api.rename(path, inFolder(folder, baseName(path)));
+      if (path === this.state.active) this.select(note);
       await this.list();
-      this.selectFolderAfterOperation(folder);
+      this.patch({ expanded: this.reveal(folder), notice: `已移动到「${folder || '根目录'}」` });
     });
   }
-  private selectFolderAfterOperation(folder: string) { this.patch({ folder, expanded: this.reveal(folder) }); }
-  renameFolder(name: string) {
+  deleteNote(path: string) {
     return this.operation(async () => {
-      const previous = this.state.folder;
-      if (!previous) return;
-      if (/[\/\\]/.test(name)) throw new Error('请输入单个文件夹名称。');
-      const folder = await this.api.renameFolder(previous, inFolder(parentFolder(previous), name.trim()));
-      const remap = (path: string) => withinFolder(path, previous) ? folder + path.slice(previous.length) : path;
-      this.patch({ folder, active: this.state.active ? remap(this.state.active) : null, expanded: this.state.expanded.map(remap) });
-      await this.list();
-    });
-  }
-  deleteFolder() {
-    return this.operation(async () => {
-      const folder = this.state.folder;
-      if (!folder) return;
-      await this.api.deleteFolder(folder);
-      this.patch({ folder: parentFolder(folder) });
-      await this.list();
-    });
-  }
-  delete() {
-    return this.operation(async () => {
-      if (!this.state.active) return;
-      await this.api.delete(this.state.active);
+      await this.api.delete(path);
+      if (path !== this.state.active) { await this.list(); return; }
       this.patch({ active: null, content: '', saved: '' });
       await this.list();
       if (this.state.notes[0]) this.select(await this.api.read(this.state.notes[0].name));
+    });
+  }
+  createFolder(name: string, parent = this.state.folder) {
+    return this.operation(async () => {
+      if (/[\/\\]/.test(name)) throw new Error('请输入单个文件夹名称。');
+      const folder = await this.api.createFolder(inFolder(parent, name.trim()));
+      await this.list();
+      this.patch({ folder, folderFocus: true, expanded: this.reveal(folder) });
+    });
+  }
+  renameFolder(path: string, name: string) {
+    return this.operation(async () => {
+      if (!path) return;
+      if (/[\/\\]/.test(name)) throw new Error('请输入单个文件夹名称。');
+      const folder = await this.api.renameFolder(path, inFolder(parentFolder(path), name.trim()));
+      const remap = (item: string) => withinFolder(item, path) ? folder + item.slice(path.length) : item;
+      this.patch({ folder: remap(this.state.folder), active: this.state.active ? remap(this.state.active) : null, expanded: this.state.expanded.map(remap) });
+      await this.list();
+    });
+  }
+  deleteFolder(path: string) {
+    return this.operation(async () => {
+      if (!path) return;
+      await this.api.deleteFolder(path);
+      if (withinFolder(this.state.folder, path)) this.patch({ folder: parentFolder(path) });
+      await this.list();
     });
   }
   importFiles(files: ImportFile[], folder = this.state.folder) {

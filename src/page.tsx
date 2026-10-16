@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react';
-import { FileText, Plus, MoreHorizontal, Pencil, Check, Columns2, AlignLeft, RefreshCw, Trash2, Folder, FolderOpen, FolderPlus, FolderInput, Upload, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { NotesController } from './controller';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react';
+import { BookOpen, CircleAlert, Columns2, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, PanelLeftClose, PanelLeftOpen, PenLine, Pencil, Plus, RefreshCw, Search, TableOfContents, Trash2, Upload, X, Copy } from 'lucide-react';
+import type { NotesController, ViewMode } from './controller';
 import type { Translate } from './dictionaries';
+import type { Heading } from './markdown';
 import { MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_NOTE_BYTES, type ImportFile } from './contracts';
 import { loadChunk } from './lazy-chunk';
 import { synchronizeScroll, type EditorScrollPort } from './scroll-sync';
-import css from './styles.css';
-import { FolderTree } from './folder-tree';
+import { FilterResults, FolderTree, NOTE_DRAG, stem, type TreeTarget } from './folder-tree';
+import { Outline, outlineOf } from './outline';
+import { Dialog, LayerContext, Menu, Segmented, Toast, anchorFrom, type MenuAnchor, type MenuEntry } from './ui';
 import { baseName, parentFolder, inFolder } from './note-path';
+import css from './styles.css';
 
 const NS = 'markdownNotes';
 const MarkdownEditor = lazy(() => loadChunk<typeof import('./editor')>('client.editor.js').then(module => ({ default: module.MarkdownEditor })));
@@ -19,68 +22,121 @@ export interface ClientContext {
   slots: { inject(owner: string, callback: () => unknown): unknown; register(options: Record<string, unknown>, component: React.ComponentType): () => void };
   effect(callback: () => (() => void | Promise<void>), label?: string): unknown;
 }
-type DialogKind = 'delete' | 'copy' | 'location' | 'newFolder' | 'renameFolder' | 'deleteFolder' | 'moveNote';
-function NoteDialog({ kind, initial, directory, folders, folder, t, busy, error, onClose, onSubmit }: {
-  kind: DialogKind; initial: string; directory: string; folders: string[]; folder: string; t: Translate; busy: boolean; error: string;
-  onClose(): void; onSubmit(value: string): Promise<void>;
+type DialogState = { kind: 'deleteNote' | 'moveNote' | 'renameFolder' | 'deleteFolder'; path: string } | { kind: 'newFolder'; parent: string } | { kind: 'copy' } | { kind: 'location' };
+const RAIL_KEY = 'dsh-markdown-notes:rail', OUTLINE_KEY = 'dsh-markdown-notes:outline';
+const readFlag = (key: string) => { try { return localStorage.getItem(key) !== 'hidden'; } catch { return true; } };
+const saveFlag = (key: string, shown: boolean) => { try { localStorage.setItem(key, shown ? 'shown' : 'hidden'); } catch { /* Preference only. */ } };
+
+/** Width of an element, bucketed; state changes only when a breakpoint is crossed. */
+function useWidth<T>(element: HTMLElement | null, bucket: (width: number) => T, initial: T): T {
+  const [value, setValue] = useState(initial);
+  useLayoutEffect(() => {
+    if (!element) return;
+    setValue(bucket(element.getBoundingClientRect().width));
+    const observer = new ResizeObserver(([entry]) => setValue(bucket(entry.contentRect.width)));
+    observer.observe(element); return () => observer.disconnect();
+  }, [element]);
+  return value;
+}
+function countLines(text: string) { let lines = 1; for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) lines++; return lines; }
+
+function NameDialog({ title, label, initial, note, t, busy, error, onClose, onSubmit }: {
+  title: string; label: string; initial: string; note?: string; t: Translate; busy: boolean; error: string; onClose(): void; onSubmit(value: string): void;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const [value, setValue] = useState(kind === 'copy' ? initial.replace(/\.md$/i, '') : initial);
-  const deleting = kind === 'delete' || kind === 'deleteFolder';
-  const folderDialog = kind === 'newFolder' || kind === 'renameFolder';
-  const [picking, setPicking] = useState(false);
-  const [pickError, setPickError] = useState('');
-  const chooseDirectory = async () => {
-    setPicking(true); setPickError('');
-    try { const path = await window.__DSH_DIRECTORY_PICKER__?.pick(); if (path) setValue(path); }
-    catch (error) { setPickError(error instanceof Error ? error.message : String(error)); }
-    finally { setPicking(false); }
-  };
-  useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => dialog.close(); }, []);
-  return <dialog className="dsn-dialog" ref={ref} aria-labelledby="dsn-dialog-title"
-    onCancel={event => { event.preventDefault(); if (!busy && !picking) onClose(); }}>
-    <form onSubmit={event => { event.preventDefault(); if (!busy && !picking) void onSubmit(value); }}>
-      <h2 id="dsn-dialog-title">{t(kind === 'copy' ? 'copyTitle' : kind === 'location' ? 'directory' : kind === 'delete' ? 'deleteTitle' : kind)}</h2>
-      {deleting ? <p>{t(kind === 'deleteFolder' ? 'deleteFolderHint' : 'deleteHint', { name: initial })}</p> : kind === 'moveNote' ?
-        <label>{t('targetFolder')}<select aria-label={t('targetFolder')} value={value} disabled={busy} onChange={event => setValue(event.target.value)}>
-          <option value="">{t('rootFolder')}</option>{folders.map(path => <option key={path} value={path}>{path}</option>)}
-        </select></label> : kind === 'location' ?
-        <><p>{t('locationHint')}</p><code className="dsn-location-path">{directory}</code>
-          <label className="dsn-directory-field">{t('newDirectory')}<input aria-label={t('newDirectory')} value={value} disabled={busy || picking} onChange={event => setValue(event.target.value)} placeholder="D:\Notes" /></label>
-          {window.__DSH_DIRECTORY_PICKER__ && <button type="button" disabled={busy || picking} onClick={() => void chooseDirectory()}><Folder />{picking ? t('picking') : t('chooseDirectory')}</button>}
-          <p className="dsn-migration-hint">{t('migrationHint')}</p></> :
-        <>{kind === 'newFolder' && <p className="dsn-dialog-location">{t('folderDestination')}：{folder || t('rootFolder')}</p>}
-          <label>{t(folderDialog ? 'folderName' : 'name')}<input autoFocus value={value} maxLength={180} required disabled={busy} onChange={e => setValue(e.target.value)} /></label></>}
-      {(error || pickError) && <p className="dsn-dialog-error" role="alert">{error || pickError}</p>}
-      <div className="dsn-dialog-actions">
-        <button type="button" onClick={onClose} disabled={busy || picking} autoFocus={deleting}>{t(kind === 'location' ? 'close' : 'cancel')}</button>
-        <button className={deleting ? 'dsn-danger' : 'dsn-primary'} disabled={busy || picking || (!deleting && kind !== 'moveNote' && !value.trim()) || (kind === 'location' && value.trim() === directory) || (kind === 'moveNote' && value === initial)}>{t(deleting ? 'delete' : kind === 'location' ? busy ? 'migrating' : 'migrate' : 'confirm')}</button>
-      </div>
-    </form>
-  </dialog>;
+  const [value, setValue] = useState(initial), id = useId();
+  return <Dialog title={title} closeLabel={t('close')} busy={busy} onClose={onClose} onSubmit={() => { if (value.trim()) onSubmit(value); }} footer={<>
+    <button type="button" className="dsn-button" disabled={busy} onClick={onClose}>{t('cancel')}</button>
+    <button type="submit" className="dsn-button dsn-button-primary" disabled={busy || !value.trim()}>{t('confirm')}</button>
+  </>}>
+    {note && <p className="dsn-hint">{note}</p>}
+    <div className="dsn-field"><label htmlFor={id}>{label}</label>
+      <input id={id} className="dsn-input" data-autofocus value={value} maxLength={180} required disabled={busy} onChange={event => setValue(event.target.value)}
+        onFocus={event => event.currentTarget.select()} /></div>
+    {error && <p className="dsn-dialog-error" role="alert">{error}</p>}
+  </Dialog>;
 }
 
-export function NotesPage({ controller, ctx }: { controller: NotesController; ctx: ClientContext }) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-  useSyncExternalStore(listener => ctx.locale.subscribe(listener), () => ctx.locale.getSnapshot());
-  const t = ctx.locale.bind(NS);
-  const [dialog, setDialog] = useState<DialogKind | null>(null);
-  const [dialogError, setDialogError] = useState('');
-  const [menu, setMenu] = useState<'document' | 'rail' | 'folder' | null>(null);
-  const [renaming, setRenaming] = useState(false);
-  const [title, setTitle] = useState('');
-  const [collapsed, setCollapsed] = useState(false);
-  const titleInput = useRef<HTMLInputElement>(null);
-  const cancelledRename = useRef(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+function ConfirmDialog({ title, body, t, busy, error, onClose, onSubmit }: { title: string; body: string; t: Translate; busy: boolean; error: string; onClose(): void; onSubmit(): void }) {
+  return <Dialog title={title} closeLabel={t('close')} busy={busy} onClose={onClose} onSubmit={onSubmit} footer={<>
+    <button type="button" className="dsn-button" data-autofocus disabled={busy} onClick={onClose}>{t('cancel')}</button>
+    <button type="submit" className="dsn-button dsn-button-danger" disabled={busy}>{t('delete')}</button>
+  </>}>
+    <p className="dsn-dialog-text">{body}</p>
+    {error && <p className="dsn-dialog-error" role="alert">{error}</p>}
+  </Dialog>;
+}
+
+/** Destination picker as an indented list of real folders; the current location is shown but not selectable. */
+function MoveDialog({ path, folders, t, busy, error, onClose, onSubmit }: { path: string; folders: string[]; t: Translate; busy: boolean; error: string; onClose(): void; onSubmit(folder: string): void }) {
+  const current = parentFolder(path), [value, setValue] = useState<string | null>(null), name = useId();
+  const options = ['', ...folders];
+  return <Dialog title={t('moveTitle')} closeLabel={t('close')} busy={busy} onClose={onClose} onSubmit={() => { if (value !== null) onSubmit(value); }} footer={<>
+    <button type="button" className="dsn-button" disabled={busy} onClick={onClose}>{t('cancel')}</button>
+    <button type="submit" className="dsn-button dsn-button-primary" disabled={busy || value === null}>{t('move')}</button>
+  </>}>
+    <p className="dsn-hint">{t('moveHint', { name: stem(path) })}</p>
+    <div className="dsn-destinations" role="radiogroup" aria-label={t('moveTitle')}>
+      {options.map(folder => <label key={folder || '/'} className="dsn-destination" data-current={folder === current || undefined} style={{ '--depth': folder ? folder.split('/').length : 0 } as React.CSSProperties}>
+        <input type="radio" name={name} value={folder} checked={value === folder} disabled={busy || folder === current} onChange={() => setValue(folder)} data-autofocus={value === null && folder !== current ? true : undefined} />
+        {folder ? <Folder /> : <FolderOpen />}<span>{folder ? baseName(folder) : t('rootFolder')}</span>{folder === current && <small>{t('currentLocation')}</small>}
+      </label>)}
+    </div>
+    {error && <p className="dsn-dialog-error" role="alert">{error}</p>}
+  </Dialog>;
+}
+
+function LocationDialog({ directory, t, busy, error, onClose, onSubmit }: { directory: string; t: Translate; busy: boolean; error: string; onClose(): void; onSubmit(value: string): void }) {
+  const [value, setValue] = useState(directory), [picking, setPicking] = useState(false), [pickError, setPickError] = useState(''), id = useId();
+  const choose = async () => {
+    setPicking(true); setPickError('');
+    try { const path = await window.__DSH_DIRECTORY_PICKER__?.pick(); if (path) setValue(path); }
+    catch (reason) { setPickError(reason instanceof Error ? reason.message : String(reason)); } finally { setPicking(false); }
+  };
+  const blocked = busy || picking;
+  return <Dialog title={t('locationTitle')} closeLabel={t('close')} busy={blocked} onClose={onClose} onSubmit={() => { if (value.trim() && value.trim() !== directory) onSubmit(value); }} footer={<>
+    <button type="button" className="dsn-button" disabled={blocked} onClick={onClose}>{t('cancel')}</button>
+    <button type="submit" className="dsn-button dsn-button-primary" disabled={blocked || !value.trim() || value.trim() === directory}>{busy ? <><LoaderCircle className="dsn-spin" />{t('migrating')}</> : t('migrate')}</button>
+  </>}>
+    <p className="dsn-dialog-text">{t('locationHint')}</p>
+    <code className="dsn-path">{directory}</code>
+    <div className="dsn-field"><label htmlFor={id}>{t('newDirectory')}</label><div className="dsn-input-row">
+      <input id={id} className="dsn-input" data-autofocus aria-label={t('newDirectory')} value={value} disabled={blocked} placeholder="D:\Notes" onChange={event => setValue(event.target.value)} />
+      {window.__DSH_DIRECTORY_PICKER__ && <button type="button" className="dsn-button dsn-button-secondary" disabled={blocked} onClick={() => void choose()}><Folder />{picking ? t('picking') : t('chooseDirectory')}</button>}
+    </div></div>
+    <p className="dsn-hint">{t('migrationHint')}</p>
+    {(error || pickError) && <p className="dsn-dialog-error" role="alert">{error || pickError}</p>}
+  </Dialog>;
+}
+
+export function NotesPage({ controller: c, ctx }: { controller: NotesController; ctx: ClientContext }) {
+  const state = useSyncExternalStore(c.subscribe, c.getSnapshot);
+  const subscribeLocale = useCallback((listener: () => void) => ctx.locale.subscribe(listener), [ctx]);
+  const locale = useSyncExternalStore(subscribeLocale, () => ctx.locale.getSnapshot());
+  // Stable per locale, so memoized children (the tree) do not re-render on every keystroke.
+  const t = useMemo(() => ctx.locale.bind(NS), [ctx, locale]);
+  const [root, setRoot] = useState<HTMLElement | null>(null), [main, setMain] = useState<HTMLElement | null>(null);
+  const layout = useWidth(root, width => width >= 760 ? 'wide' : width >= 560 ? 'narrow' : 'tiny', 'wide');
+  const roomy = useWidth(main, width => width >= 1000, true);
+  const [railPref, setRailPref] = useState(() => readFlag(RAIL_KEY)), [railOverlay, setRailOverlay] = useState(false);
+  const [outlinePref, setOutlinePref] = useState(() => readFlag(OUTLINE_KEY));
+  const [dialog, setDialog] = useState<DialogState | null>(null), [dialogError, setDialogError] = useState('');
+  const [menu, setMenu] = useState<{ anchor: MenuAnchor; entries: MenuEntry[]; label: string } | null>(null);
+  const [query, setQuery] = useState(''), filterInput = useRef<HTMLInputElement>(null);
+  const [renaming, setRenaming] = useState(false), [title, setTitle] = useState('');
+  const titleInput = useRef<HTMLInputElement>(null), cancelledRename = useRef(false);
   const readPane = useRef<HTMLDivElement>(null);
-  const [editorPort, setEditorPort] = useState<EditorScrollPort | null>(null);
-  const [previewPane, setPreviewPane] = useState<HTMLDivElement | null>(null);
+  const [editorPort, setEditorPort] = useState<EditorScrollPort | null>(null), [previewPane, setPreviewPane] = useState<HTMLDivElement | null>(null);
+  const [headings, setHeadings] = useState<Heading[]>([]);
   const readingRef = useCallback((element: HTMLDivElement | null) => { readPane.current = element; setPreviewPane(element); }, []);
+  const fileInput = useRef<HTMLInputElement>(null), importTarget = useRef(''), importing = useRef(false);
+  const dragNote = useRef<string | null>(null), fileDepth = useRef(0);
+  const [dragKind, setDragKind] = useState<'files' | 'note' | null>(null), [dropTarget, setDropTarget] = useState<string | null>(null);
+  const wide = layout === 'wide', railShown = wide ? railPref : railOverlay, reading = state.mode === 'preview';
+  const dirty = state.content !== state.saved;
+  useEffect(() => { if (wide) setRailOverlay(false); }, [wide]);
   useEffect(() => {
     if (state.mode === 'split' && editorPort && previewPane) return synchronizeScroll(editorPort, previewPane);
   }, [state.mode, state.active, editorPort, previewPane]);
-  const dirty = state.content !== state.saved;
   const [preview, setPreview] = useState({ name: state.active, content: state.content });
   useEffect(() => {
     if (state.mode === 'edit') return;
@@ -88,134 +144,246 @@ export function NotesPage({ controller, ctx }: { controller: NotesController; ct
     return () => clearTimeout(timer);
   }, [state.active, state.content, state.mode]);
   const deferred = preview.name === state.active ? preview.content : state.content;
-  const [dragging, setDragging] = useState(false);
-  const dragDepth = useRef(0);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const importing = useRef(false);
-  const reading = state.mode === 'preview';
-  const save = () => { void controller.flush().catch(() => {}); };
-  useEffect(() => { void controller.load(); return () => { void controller.flush().catch(() => {}); }; }, [controller]);
-  useEffect(() => { readPane.current?.scrollTo({ top: 0 }); setRenaming(false); }, [state.active]);
+  const save = () => { void c.flush().catch(() => {}); };
+  useEffect(() => { void c.load(); return () => { void c.flush().catch(() => {}); }; }, [c]);
+  useEffect(() => { readPane.current?.scrollTo({ top: 0 }); setRenaming(false); setHeadings([]); }, [state.active]);
   useEffect(() => { if (renaming) { titleInput.current?.focus(); titleInput.current?.select(); } }, [renaming]);
+  // Leaving the editor removes the focused element; hand focus to the article so Ctrl+E and paging keys keep working.
+  // A layout effect runs in the same commit as the removal, so no key press can land on <body> in between.
+  useLayoutEffect(() => {
+    if (state.mode === 'preview' && (!document.activeElement || document.activeElement === document.body)) readPane.current?.focus({ preventScroll: true });
+  }, [state.mode]);
+  // While a note is dragged over a collapsed folder, open it after a short dwell.
   useEffect(() => {
-    if (!menu) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const outside = (event: PointerEvent) => { if (!(event.target as HTMLElement).closest('[data-dsn-menu]')) setMenu(null); };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, [menu]);
-  const beginRename = () => { setMenu(null); cancelledRename.current = false; setTitle(baseName(state.active ?? '').replace(/\.md$/i, '')); setRenaming(true); };
+    if (dragKind !== 'note' || !dropTarget || state.expanded.includes(dropTarget)) return;
+    const timer = setTimeout(() => c.toggleFolder(dropTarget, true), 650);
+    return () => clearTimeout(timer);
+  }, [dragKind, dropTarget, state.expanded, c]);
+
+  const toggleRail = useCallback(() => {
+    if (wide) setRailPref(shown => { saveFlag(RAIL_KEY, !shown); return !shown; }); else setRailOverlay(shown => !shown);
+  }, [wide]);
+  const picked = useCallback(() => setRailOverlay(false), []);
+  const beginRename = useCallback(() => {
+    const active = c.getSnapshot().active; if (!active) return;
+    setMenu(null); cancelledRename.current = false; setTitle(stem(active)); setRenaming(true);
+  }, [c]);
   const rename = async () => {
-    if (cancelledRename.current || state.busy) return;
-    if (title.trim() === baseName(state.active ?? '').replace(/\.md$/i, '')) { setRenaming(false); return; }
-    if (await controller.rename(title)) setRenaming(false);
+    if (cancelledRename.current || state.busy || !state.active) return;
+    if (title.trim() === stem(state.active)) { setRenaming(false); return; }
+    if (await c.renameNote(state.active, title)) setRenaming(false);
   };
-  const create = async () => {
-    let suffix = 1; let name = t('unnamed');
-    while (state.notes.some(note => note.name.toLowerCase() === inFolder(state.folder, `${name}.md`).toLowerCase())) name = `${t('unnamed')} ${++suffix}`;
-    await controller.create(name);
+  const create = useCallback(async (folder = c.getSnapshot().folder) => {
+    const notes = c.getSnapshot().notes;
+    let suffix = 1, name = t('unnamed');
+    while (notes.some(note => note.name.toLowerCase() === inFolder(folder, `${name}.md`).toLowerCase())) name = `${t('unnamed')} ${++suffix}`;
+    if (await c.create(name, folder)) { setQuery(''); setRailOverlay(false); }
+  }, [c, t]);
+  const createIn = useCallback((folder: string) => void create(folder), [create]);
+  const openDialog = (next: DialogState) => { setMenu(null); setDialogError(''); setDialog(next); };
+  const closeDialog = () => { setDialog(null); if (dialogError) c.dismissError(); setDialogError(''); };
+  const submit = async (value = '') => {
+    if (!dialog) return;
+    const ok = dialog.kind === 'copy' ? await c.saveCopy(value) : dialog.kind === 'location' ? await c.migrate(value)
+      : dialog.kind === 'newFolder' ? await c.createFolder(value, dialog.parent) : dialog.kind === 'renameFolder' ? await c.renameFolder(dialog.path, value)
+      : dialog.kind === 'deleteFolder' ? await c.deleteFolder(dialog.path) : dialog.kind === 'moveNote' ? await c.moveNote(dialog.path, value) : await c.deleteNote(dialog.path);
+    if (ok) setDialog(null); else setDialogError(c.getSnapshot().error);
   };
-  const openDialog = (kind: DialogKind) => { setMenu(null); setDialogError(''); setDialog(kind); };
-  const submit = async (value: string) => {
-    const success = dialog === 'copy' ? await controller.saveCopy(value) : dialog === 'location' ? await controller.migrate(value)
-      : dialog === 'newFolder' ? await controller.createFolder(value) : dialog === 'renameFolder' ? await controller.renameFolder(value)
-      : dialog === 'deleteFolder' ? await controller.deleteFolder() : dialog === 'moveNote' ? await controller.move(value) : await controller.delete();
-    if (success) setDialog(null); else setDialogError(controller.getSnapshot().error);
-  };
-  const importFiles = async (files: File[]) => {
-    if (state.busy || importing.current) { controller.reportError(t('busyImport')); return; }
+  const importFiles = async (files: File[], folder: string) => {
+    if (state.busy || importing.current) { c.reportError(t('busyImport')); return; }
     const accepted = files.filter(file => /\.(md|markdown)$/i.test(file.name));
-    if (!accepted.length) { controller.reportError(t('markdownOnly')); return; }
-    if (accepted.length > MAX_IMPORT_FILES || accepted.some(file => file.size > MAX_NOTE_BYTES) || accepted.reduce((total, file) => total + file.size, 0) > MAX_IMPORT_BYTES) { controller.reportError(t('importLimit')); return; }
+    if (!accepted.length) { c.reportError(t('markdownOnly')); return; }
+    if (accepted.length > MAX_IMPORT_FILES || accepted.some(file => file.size > MAX_NOTE_BYTES) || accepted.reduce((total, file) => total + file.size, 0) > MAX_IMPORT_BYTES) { c.reportError(t('importLimit')); return; }
     importing.current = true;
     try {
       const contents: ImportFile[] = [];
       for (const file of accepted) contents.push({ name: file.name, content: new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()) });
-      await controller.importFiles(contents, state.folder);
-    } catch (error) { controller.reportError(error instanceof TypeError ? t('utf8Only') : String(error)); }
+      await c.importFiles(contents, folder);
+    } catch (error) { c.reportError(error instanceof TypeError ? t('utf8Only') : String(error)); }
     finally { importing.current = false; }
   };
+  const pickImport = (folder: string) => { setMenu(null); importTarget.current = folder; fileInput.current?.click(); };
+  const showMenu = (label: string, entries: MenuEntry[]) => (anchor: MenuAnchor) => setMenu({ anchor, entries, label });
+  const noteEntries = (path: string): MenuEntry[] => [
+    ...(path !== state.active ? [{ label: t('open'), icon: <FileText />, onSelect: () => { void c.open(path); picked(); } }] : []),
+    { label: t('rename'), icon: <Pencil />, disabled: state.busy, onSelect: () => { if (path === state.active) beginRename(); else void c.open(path).then(ok => { if (ok) beginRename(); }); } },
+    { label: t('moveNote'), icon: <FolderInput />, disabled: state.busy, onSelect: () => openDialog({ kind: 'moveNote', path }) },
+    'separator',
+    { label: t('delete'), icon: <Trash2 />, danger: true, disabled: state.busy, onSelect: () => openDialog({ kind: 'deleteNote', path }) },
+  ];
+  const folderEntries = (path: string): MenuEntry[] => [
+    { label: t('new'), icon: <FilePlus2 />, disabled: state.busy, onSelect: () => void create(path) },
+    { label: t('newSubfolder'), icon: <FolderPlus />, disabled: state.busy, onSelect: () => openDialog({ kind: 'newFolder', parent: path }) },
+    { label: t('importHere'), icon: <Upload />, disabled: state.busy, onSelect: () => pickImport(path) },
+    'separator',
+    { label: t('renameFolder'), icon: <Pencil />, disabled: state.busy, onSelect: () => openDialog({ kind: 'renameFolder', path }) },
+    { label: t('deleteFolder'), icon: <Trash2 />, danger: true, disabled: state.busy, onSelect: () => openDialog({ kind: 'deleteFolder', path }) },
+  ];
+  const libraryEntries = (): MenuEntry[] => [
+    { label: t('newFolder'), icon: <FolderPlus />, disabled: state.busy, onSelect: () => openDialog({ kind: 'newFolder', parent: state.folder }) },
+    { label: t('importMarkdown'), icon: <Upload />, disabled: state.busy, onSelect: () => pickImport(state.folder) },
+    'separator',
+    { label: t('refresh'), icon: <RefreshCw />, disabled: state.busy, onSelect: () => void c.refresh() },
+    { label: t('openExplorer'), icon: <FolderOpen />, disabled: state.busy, onSelect: () => void c.openDirectory() },
+    { label: t('directory'), icon: <Folder />, onSelect: () => openDialog({ kind: 'location' }) },
+  ];
+  const documentEntries = (): MenuEntry[] => state.active ? [
+    { label: t('rename'), icon: <Pencil />, disabled: state.busy, onSelect: beginRename },
+    { label: t('moveNote'), icon: <FolderInput />, disabled: state.busy, onSelect: () => openDialog({ kind: 'moveNote', path: state.active! }) },
+    { label: t('saveCopy'), icon: <Copy />, disabled: state.busy, onSelect: () => openDialog({ kind: 'copy' }) },
+    'separator',
+    { label: t('delete'), icon: <Trash2 />, danger: true, disabled: state.busy, onSelect: () => openDialog({ kind: 'deleteNote', path: state.active! }) },
+  ] : [];
+  const onTreeMenu = (target: TreeTarget, anchor: MenuAnchor) => {
+    const name = target.kind === 'root' ? t('libraryRoot') : target.kind === 'note' ? stem(target.path) : baseName(target.path);
+    const entries = target.kind === 'note' ? noteEntries(target.path) : target.kind === 'folder' ? folderEntries(target.path) : [
+      { label: t('new'), icon: <FilePlus2 />, disabled: state.busy, onSelect: () => void create('') },
+      { label: t('newFolder'), icon: <FolderPlus />, disabled: state.busy, onSelect: () => openDialog({ kind: 'newFolder', parent: '' }) },
+      { label: t('importMarkdown'), icon: <Upload />, disabled: state.busy, onSelect: () => pickImport('') },
+    ] as MenuEntry[];
+    setMenu({ anchor, entries, label: t('moreFor', { name }) });
+  };
+  const treeMenu = useRef(onTreeMenu); treeMenu.current = onTreeMenu;
+  const stableTreeMenu = useCallback((target: TreeTarget, anchor: MenuAnchor) => treeMenu.current(target, anchor), []);
+  const onDragNote = useCallback((path: string | null) => { dragNote.current = path; setDragKind(path ? 'note' : null); if (!path) setDropTarget(null); }, []);
+  const folderAt = (target: EventTarget | null) => (target instanceof Element ? target.closest('[data-folder]')?.getAttribute('data-folder') : null) ?? null;
+  const q = query.trim().toLowerCase();
+  const matches = useMemo(() => {
+    if (!q) return [];
+    const found = state.notes.filter(note => note.name.toLowerCase().includes(q));
+    // Title matches first, then notes found through their folder path.
+    return found.sort((a, b) => Number(!stem(a.name).toLowerCase().includes(q)) - Number(!stem(b.name).toLowerCase().includes(q))).slice(0, 200);
+  }, [state.notes, q]);
+  const outline = useMemo(() => outlineOf(headings), [headings]);
+  const canOutline = reading && roomy && outline.length >= 2 && !!state.content, showOutline = canOutline && outlinePref;
   const status = state.saving ? 'saving' : dirty ? state.error ? 'failed' : 'pending' : 'saved';
-  const popover = (kind: 'document' | 'rail' | 'folder') => menu === kind && <div className="dsn-menu" ref={menuRef} role="menu" onKeyDown={event => {
-    if (event.key === 'Escape') { event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('button[aria-expanded]')?.focus(); setMenu(null); event.stopPropagation(); }
-    if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
-      event.preventDefault(); const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
-      const index = items.indexOf(document.activeElement as HTMLButtonElement);
-      items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
-    }
-  }}>
-    {kind === 'folder' ? <><button role="menuitem" onClick={() => openDialog('newFolder')} disabled={state.busy}><FolderPlus />{t('newFolder')}</button>
-      <button role="menuitem" onClick={() => openDialog('renameFolder')} disabled={state.busy || !state.folder}><Pencil />{t('renameFolder')}</button>
-      <button role="menuitem" className="dsn-danger" onClick={() => openDialog('deleteFolder')} disabled={state.busy || !state.folder}><Trash2 />{t('deleteFolder')}</button></> : <>
-    {kind === 'document' && <><button role="menuitem" onClick={beginRename} disabled={state.busy}><Pencil />{t('rename')}</button>
-      <button role="menuitem" onClick={() => openDialog('moveNote')} disabled={state.busy}><FolderInput />{t('moveNote')}</button>
-      <button role="menuitem" onClick={() => openDialog('copy')} disabled={state.busy}><FileText />{t('saveCopy')}</button><hr /></>}
-    <button role="menuitem" onClick={() => { setMenu(null); fileInput.current?.click(); }} disabled={state.busy}><Upload />{t('importMarkdown')}</button>
-    <button role="menuitem" onClick={() => { setMenu(null); void controller.openDirectory(); }} disabled={state.busy}><FolderOpen />{t('openExplorer')}</button>
-    <button role="menuitem" onClick={() => { setMenu(null); void controller.refresh(); }} disabled={state.busy}><RefreshCw />{t('refresh')}</button>
-    <button role="menuitem" onClick={() => openDialog('location')}><Folder />{t('directory')}</button>
-    {kind === 'document' && <><hr /><button role="menuitem" className="dsn-danger" onClick={() => openDialog('delete')} disabled={state.busy}><Trash2 />{t('delete')}</button></>}
-    </>}
-  </div>;
-  return <section className={`dsn-root ${collapsed ? 'dsn-rail-collapsed' : ''}`} aria-label={t('title')}
-    onDragEnterCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
-    onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state.busy ? 'none' : 'copy'; } }}
-    onDragLeaveCapture={event => { if (event.dataTransfer.types.includes('Files') && --dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }}
-    onDropCapture={event => { if (!event.dataTransfer.types.includes('Files')) return; event.preventDefault(); event.stopPropagation(); dragDepth.current = 0; setDragging(false); void importFiles([...event.dataTransfer.files]); }}
+  const dropName = dropTarget === null ? '' : dropTarget ? baseName(dropTarget) : t('rootFolder');
+  const crumbs = state.active ? parentFolder(state.active).split('/').filter(Boolean) : [];
+
+  return <section ref={setRoot} className="dsn-root" data-layout={layout} data-rail={railShown ? 'shown' : 'hidden'} data-dragging={dragKind ?? undefined} aria-label={t('title')}
+    onDragEnterCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); fileDepth.current++; setDragKind('files'); } }}
+    onDragOverCapture={event => {
+      const types = event.dataTransfer.types;
+      if (types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state.busy ? 'none' : 'copy'; setDropTarget(folderAt(event.target) ?? state.folder); return; }
+      const path = dragNote.current;
+      if (!types.includes(NOTE_DRAG) || !path) return;
+      const target = folderAt(event.target), valid = target !== null && target !== parentFolder(path) && !state.busy;
+      if (valid) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }
+      setDropTarget(valid ? target : null);
+    }}
+    onDragLeaveCapture={event => { if (event.dataTransfer.types.includes('Files') && --fileDepth.current <= 0) { fileDepth.current = 0; setDragKind(null); setDropTarget(null); } }}
+    onDropCapture={event => {
+      const types = event.dataTransfer.types;
+      if (types.includes('Files')) {
+        event.preventDefault(); event.stopPropagation();
+        const target = folderAt(event.target) ?? state.folder;
+        fileDepth.current = 0; setDragKind(null); setDropTarget(null); void importFiles([...event.dataTransfer.files], target); return;
+      }
+      const path = dragNote.current;
+      if (!types.includes(NOTE_DRAG) || !path) return;
+      event.preventDefault();
+      const target = folderAt(event.target); onDragNote(null);
+      if (target !== null && target !== parentFolder(path)) void c.moveNote(path, target);
+    }}
     onKeyDown={event => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); save(); }
-  }}>
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || (event.target as Element).closest('dialog')) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') { event.preventDefault(); save(); }
+      else if (key === 'e' && state.active) { event.preventDefault(); void c.toggleEditing(); }
+    }}>
     <style>{css}</style>
-    <input ref={fileInput} type="file" accept=".md,.markdown,text/markdown" multiple hidden onChange={event => { void importFiles([...(event.target.files ?? [])]); event.target.value = ''; }} />
-    {dragging && <div className="dsn-drop-overlay" role="status"><Upload /><strong>{t(state.busy ? 'busyImport' : 'dropMarkdown')}</strong><span>{t('folderDestination')}：{state.folder || t('rootFolder')} · {t('dropHint')}</span></div>}
-    {!collapsed && <aside className="dsn-rail" aria-label={t('list')}>
-      <div className="dsn-rail-heading"><h1>{t('title')}</h1><div className="dsn-create-actions">
-        <button className="dsn-icon" title={t('newFolder')} aria-label={t('newFolder')} disabled={state.busy} onClick={() => openDialog('newFolder')}><FolderPlus /></button>
-        <button className="dsn-new" title={t('new')} aria-label={t('new')} disabled={state.busy} onClick={() => void create()}><Plus /><span>{t('newShort')}</span></button></div></div>
-      <div className="dsn-folder-destination"><span title={state.folder || t('rootFolder')}>{t('folderDestination')}<strong>{state.folder || t('rootFolder')}</strong></span>
-        <div className="dsn-menu-anchor" data-dsn-menu><button className="dsn-icon" aria-label={t('folderMenu')} aria-expanded={menu === 'folder'} onClick={() => setMenu(menu === 'folder' ? null : 'folder')}><MoreHorizontal /></button>{popover('folder')}</div>
-      </div>
-      <FolderTree state={state} controller={controller} t={t} onRename={beginRename} />
-      <footer className="dsn-rail-footer"><span>{t('local')} · {t('count', { count: state.notes.length })}</span>
-        <div className="dsn-menu-anchor" data-dsn-menu><button className="dsn-icon" aria-label={t('libraryMenu')} aria-expanded={menu === 'rail'} onClick={() => setMenu(menu === 'rail' ? null : 'rail')}><MoreHorizontal /></button>{popover('rail')}</div>
-      </footer>
-    </aside>}
-    <main className="dsn-main" aria-busy={state.busy}>
-      <header className="dsn-toolbar">
-        <button className="dsn-icon dsn-toggle-list" title={t(collapsed ? 'showList' : 'hideList')} aria-label={t(collapsed ? 'showList' : 'hideList')} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</button>
-        <FileText className="dsn-document-icon" />
-        {renaming ? <form className="dsn-title-form" onSubmit={e => { e.preventDefault(); void rename(); }}>
-          <input ref={titleInput} aria-label={t('name')} value={title} maxLength={180} disabled={state.busy} onChange={e => setTitle(e.target.value)} onBlur={() => void rename()}
-            onKeyDown={e => { if (e.key === 'Escape') { cancelledRename.current = true; setRenaming(false); } }} />
-        </form> : <button className="dsn-document-title" onClick={beginRename} disabled={!state.active || state.busy} title={state.active ?? t('rename')}>{state.active ? baseName(state.active).replace(/\.md$/i, '') : t('title')}</button>}
-        {state.active && <>
-          <span className={`dsn-save-state ${dirty && state.error ? 'dsn-status-error' : ''}`} aria-live="polite">{!dirty && !state.saving && <Check />}{t(status)}</span>
-          {!reading && <div className="dsn-view-switch" role="group" aria-label={t('editorLabel')}>
-            <button title={t('edit')} aria-label={t('edit')} aria-pressed={state.mode === 'edit'} onClick={() => void controller.setMode('edit')}><AlignLeft /></button>
-            <button title={t('split')} aria-label={t('split')} aria-pressed={state.mode === 'split'} onClick={() => void controller.setMode('split')}><Columns2 /></button>
-          </div>}
-          <button className="dsn-primary dsn-edit-toggle" disabled={state.busy} onClick={() => void controller.setMode(reading ? 'edit' : 'preview')}>
-            {reading ? <Pencil /> : <Check />}<span>{t(reading ? 'edit' : 'done')}</span>
-          </button>
-          <div className="dsn-menu-anchor" data-dsn-menu><button className="dsn-icon" title={t('documentMenu')} aria-label={t('documentMenu')} aria-expanded={menu === 'document'} onClick={() => setMenu(menu === 'document' ? null : 'document')}><MoreHorizontal /></button>{popover('document')}</div>
-        </>}
-      </header>
-      {state.active && parentFolder(state.active) && <div className="dsn-document-path" title={state.active}>{t('rootFolder')} / {parentFolder(state.active).split('/').join(' / ')}</div>}
-      {state.error && !dialog && <div className="dsn-error" role="alert"><span>{state.error}</span>{dirty && <><button onClick={save} disabled={state.busy || state.saving}>{t('retry')}</button><button onClick={() => openDialog('copy')} disabled={state.busy || state.saving}>{t('saveCopy')}</button></>}</div>}
-      {state.notice && <div className="dsn-notice" role="status"><span>{state.notice}</span><button className="dsn-icon" aria-label={t('close')} onClick={() => controller.dismissNotice()}><X /></button></div>}
-      {state.active ? <>
-        <div className={`dsn-content dsn-mode-${state.mode}`}>
-          {!reading && <div className="dsn-source-pane"><div className="dsn-pane-label">Markdown</div><Suspense fallback={<p className="dsn-rendering">正在打开编辑器…</p>}><MarkdownEditor key={state.active} value={state.content} disabled={state.busy} label={t('content')} onChange={value => controller.edit(value)} onSave={save} onReady={setEditorPort} /></Suspense></div>}
-          {state.mode !== 'edit' && <div className="dsn-reading-pane" ref={readingRef}>
-            {state.mode === 'split' && <div className="dsn-pane-label">{t('preview')}</div>}
-            {state.content ? <Suspense fallback={<p className="dsn-rendering">正在打开预览…</p>}><MarkdownPreview key={state.active} source={deferred} copyLabel={t('copyCode')} /></Suspense> : <div className="dsn-blank"><FileText /><h2>{t('blankTitle')}</h2><p>{t('blankHint')}</p><button onClick={() => void controller.setMode('edit')}><Pencil />{t('edit')}</button></div>}
-          </div>}
+    <LayerContext.Provider value={root}>
+      <input ref={fileInput} type="file" accept=".md,.markdown,text/markdown" multiple hidden onChange={event => { void importFiles([...(event.target.files ?? [])], importTarget.current); event.target.value = ''; }} />
+      {railShown && <aside className="dsn-rail" data-overlay={!wide || undefined} aria-label={t('list')}>
+        <header className="dsn-rail-head">
+          <h1>{t('title')}</h1>
+          <button type="button" className="dsn-icon-button" aria-label={t('new')} title={t('newIn', { folder: state.folder ? baseName(state.folder) : t('rootFolder') })} disabled={state.busy} onClick={() => void create()}><Plus /></button>
+          <button type="button" className="dsn-icon-button" aria-label={t('libraryMenu')} title={t('libraryMenu')} aria-haspopup="menu" onClick={event => showMenu(t('libraryMenu'), libraryEntries())(anchorFrom(event.currentTarget))}><MoreHorizontal /></button>
+        </header>
+        <div className="dsn-filter"><Search />
+          <input ref={filterInput} type="search" value={query} placeholder={t('filter')} aria-label={t('filter')} spellCheck={false} onChange={event => setQuery(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); }
+              else if (event.key === 'Enter' && matches[0]) { event.preventDefault(); void c.open(matches[0].name); picked(); }
+              else if (event.key === 'ArrowDown') { event.preventDefault(); event.currentTarget.closest('.dsn-rail')?.querySelector<HTMLButtonElement>('.dsn-result, .dsn-row-main')?.focus(); }
+            }} />
+          {query && <button type="button" className="dsn-filter-clear" aria-label={t('clearFilter')} title={t('clearFilter')} onClick={() => { setQuery(''); filterInput.current?.focus(); }}><X /></button>}
         </div>
-        {!reading && <footer className="dsn-editor-footer"><span>{t('characters', { count: state.content.length })}</span><span>{t('autosaveHint')}</span></footer>}
-      </> : <div className="dsn-blank"><FileText /><h2>{!state.loaded && state.busy ? t('loading') : t('empty')}</h2><p>{t('emptyHint')}</p><button className="dsn-primary" disabled={state.busy} onClick={() => void create()}><Plus />{t('new')}</button></div>}
-    </main>
-    {dialog && <NoteDialog kind={dialog} initial={dialog === 'location' ? state.directory : dialog === 'newFolder' ? '' : dialog === 'renameFolder' ? baseName(state.folder)
-      : dialog === 'deleteFolder' ? state.folder : dialog === 'moveNote' ? parentFolder(state.active ?? '') : dialog === 'copy' ? `${baseName(state.active ?? '').replace(/\.md$/i, '')} ${t('copy')}` : state.active ?? ''}
-      directory={state.directory} folders={state.folders} folder={state.folder} t={t} busy={state.busy} error={dialogError} onClose={() => setDialog(null)} onSubmit={submit} />}
+        <div className="dsn-rail-body">
+          {q ? <FilterResults c={c} t={t} matches={matches} active={state.active} query={query} onPicked={picked} />
+            : <FolderTree c={c} t={t} notes={state.notes} folders={state.folders} expanded={state.expanded} active={state.active} folder={state.folder} folderFocus={state.folderFocus}
+              busy={state.busy} dropTarget={dropTarget} onMenu={stableTreeMenu} onCreateIn={createIn} onRename={beginRename} onDragNote={onDragNote} onPicked={picked} />}
+        </div>
+      </aside>}
+      {railShown && !wide && <button type="button" className="dsn-scrim" aria-label={t('hideList')} onClick={() => setRailOverlay(false)} />}
+      <main ref={setMain} className="dsn-main" aria-busy={state.busy}>
+        <header className="dsn-bar">
+          <button type="button" className="dsn-icon-button" title={t(railShown ? 'hideList' : 'showList')} aria-label={t(railShown ? 'hideList' : 'showList')} onClick={toggleRail}>{railShown ? <PanelLeftClose /> : <PanelLeftOpen />}</button>
+          {state.active && <div className="dsn-heading">
+            {crumbs.length > 0 && <nav className="dsn-crumbs" aria-label={t('folder')}>{crumbs.map((part, i) => {
+              const path = crumbs.slice(0, i + 1).join('/');
+              return <React.Fragment key={path}><button type="button" className="dsn-crumb" title={path} onClick={() => c.selectFolder(path)}>{part}</button><span aria-hidden>/</span></React.Fragment>;
+            })}</nav>}
+            {renaming ? <form className="dsn-title-form" onSubmit={event => { event.preventDefault(); void rename(); }}>
+              <input ref={titleInput} aria-label={t('name')} value={title} maxLength={180} disabled={state.busy} onChange={event => setTitle(event.target.value)} onBlur={() => void rename()}
+                onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); cancelledRename.current = true; setRenaming(false); } }} />
+            </form> : <button type="button" className="dsn-document-title" onClick={beginRename} disabled={state.busy} title={`${t('rename')} · ${state.active}`}>{stem(state.active)}</button>}
+          </div>}
+          {state.active && <>
+            <span className="dsn-save" data-state={status} aria-live="polite"><i aria-hidden />{t(status)}</span>
+            {canOutline && <button type="button" className="dsn-icon-button" aria-pressed={showOutline} aria-label={t(showOutline ? 'hideOutline' : 'showOutline')} title={t(showOutline ? 'hideOutline' : 'showOutline')}
+              onClick={() => setOutlinePref(shown => { saveFlag(OUTLINE_KEY, !shown); return !shown; })}><TableOfContents /></button>}
+            <Segmented<ViewMode> label={t('modeLabel')} value={state.mode} disabled={state.busy} onChange={mode => void c.setMode(mode)} options={[
+              { value: 'preview', label: t('read'), icon: <BookOpen />, title: `${t('read')} · Ctrl+E` },
+              { value: 'edit', label: t('edit'), icon: <PenLine />, title: `${t('edit')} · Ctrl+E` },
+              { value: 'split', label: t('split'), icon: <Columns2 /> },
+            ]} />
+            <button type="button" className="dsn-icon-button" title={t('documentMenu')} aria-label={t('documentMenu')} aria-haspopup="menu"
+              onClick={event => showMenu(t('documentMenu'), documentEntries())(anchorFrom(event.currentTarget))}><MoreHorizontal /></button>
+          </>}
+        </header>
+        {state.error && !dialog && <div className="dsn-banner" role="alert"><CircleAlert /><span>{state.error}</span>
+          {dirty && <><button type="button" className="dsn-button dsn-button-secondary" onClick={save} disabled={state.busy || state.saving}>{t('retry')}</button>
+            <button type="button" className="dsn-button dsn-button-secondary" onClick={() => openDialog({ kind: 'copy' })} disabled={state.busy || state.saving}>{t('saveCopy')}</button></>}
+          <button type="button" className="dsn-icon-button" aria-label={t('close')} onClick={c.dismissError}><X /></button></div>}
+        {dragKind === 'files' && <div className="dsn-drop" role="status"><Upload /><strong>{state.busy ? t('busyImport') : t('dropInto', { folder: dropName })}</strong><span>{t('dropHint')}</span></div>}
+        {state.active ? <>
+          <div className={`dsn-content dsn-mode-${state.mode}`}>
+            {!reading && <div className="dsn-source-pane"><Suspense fallback={<p className="dsn-rendering">…</p>}>
+              <MarkdownEditor key={state.active} value={state.content} disabled={state.busy} label={t('content')} placeholder={t('placeholder')} onChange={value => c.edit(value)} onSave={save} onReady={setEditorPort} />
+            </Suspense></div>}
+            {state.mode !== 'edit' && <div className="dsn-reading-pane" ref={readingRef} tabIndex={-1}>
+              <div className="dsn-reading-layout">
+                <div className="dsn-reading-main">
+                  {state.content ? <Suspense fallback={<p className="dsn-rendering">…</p>}><MarkdownPreview key={state.active} source={deferred} copyLabel={t('copyCode')} onHeadings={setHeadings} /></Suspense>
+                    : <div className="dsn-blank"><FileText /><h2>{t('blankTitle')}</h2><p>{t('blankHint')}</p>
+                      <button type="button" className="dsn-button dsn-button-secondary" onClick={() => void c.setMode('edit')}><PenLine />{t('edit')}</button></div>}
+                </div>
+                {showOutline && <Outline headings={outline} pane={previewPane} label={t('outline')} />}
+              </div>
+            </div>}
+          </div>
+          {!reading && <footer className="dsn-status"><span>{t('characters', { count: state.content.length.toLocaleString() })} · {t('lines', { count: countLines(state.content).toLocaleString() })}</span><span>{t('autosaveHint')}</span></footer>}
+        </> : <div className="dsn-welcome">
+          {!state.loaded && state.busy ? <><LoaderCircle className="dsn-spin" /><p>{t('loading')}</p></> : <>
+            <span className="dsn-welcome-mark"><NotebookPen /></span><h2>{t('empty')}</h2><p>{t('emptyHint')}</p>
+            <div className="dsn-row">
+              <button type="button" className="dsn-button dsn-button-primary" disabled={state.busy} onClick={() => void create()}><Plus />{t('new')}</button>
+              <button type="button" className="dsn-button dsn-button-secondary" disabled={state.busy} onClick={() => pickImport(state.folder)}><Upload />{t('importMarkdown')}</button>
+            </div>
+          </>}
+        </div>}
+      </main>
+      <Toast message={state.notice} closeLabel={t('close')} onDismiss={c.dismissNotice} />
+      {menu && <Menu anchor={menu.anchor} entries={menu.entries} label={menu.label} onClose={() => setMenu(null)} />}
+      {dialog && (dialog.kind === 'deleteNote' || dialog.kind === 'deleteFolder') && <ConfirmDialog t={t} busy={state.busy} error={dialogError} onClose={closeDialog} onSubmit={() => void submit()}
+        title={t(dialog.kind === 'deleteNote' ? 'deleteTitle' : 'deleteFolder')} body={t(dialog.kind === 'deleteNote' ? 'deleteHint' : 'deleteFolderHint', { name: dialog.kind === 'deleteNote' ? stem(dialog.path) : dialog.path })} />}
+      {dialog?.kind === 'moveNote' && <MoveDialog path={dialog.path} folders={state.folders} t={t} busy={state.busy} error={dialogError} onClose={closeDialog} onSubmit={value => void submit(value)} />}
+      {dialog?.kind === 'location' && <LocationDialog directory={state.directory} t={t} busy={state.busy} error={dialogError} onClose={closeDialog} onSubmit={value => void submit(value)} />}
+      {dialog && (dialog.kind === 'newFolder' || dialog.kind === 'renameFolder' || dialog.kind === 'copy') && <NameDialog t={t} busy={state.busy} error={dialogError} onClose={closeDialog} onSubmit={value => void submit(value)}
+        title={t(dialog.kind === 'copy' ? 'copyTitle' : dialog.kind)} label={t(dialog.kind === 'copy' ? 'name' : 'folderName')}
+        note={dialog.kind === 'newFolder' ? `${t('folder')}：${dialog.parent ? dialog.parent.split('/').join(' / ') : t('rootFolder')}` : undefined}
+        initial={dialog.kind === 'renameFolder' ? baseName(dialog.path) : dialog.kind === 'copy' ? `${stem(state.active ?? '')} ${t('copy')}` : ''} />}
+    </LayerContext.Provider>
   </section>;
 }
