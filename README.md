@@ -8,7 +8,7 @@
 
 ![笔记阅读界面](docs/images/reading.png)
 
-> 社区插件，与 DeepSeek 官方无隶属关系。目前面向 **Windows 桌面版 DSH 0.2.0-rc.2** 开发；其他 DSH 版本尚未验证。
+> 社区插件，与 DeepSeek 官方无隶属关系。目前面向 **Windows 桌面版 DSH 0.2 系列**开发（`engines.dsh` 声明 `^0.2.0-rc.2`），在 0.2.0-rc.2 上验证过；其他版本尚未验证。
 
 ## 功能
 
@@ -59,12 +59,12 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) 下载 `dsh-markdown-notes-0.5.2.tgz`，**无需解压**。
+1. 从 [Releases](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) 下载 `dsh-markdown-notes-0.5.3.tgz`，**无需解压**。
 2. 打开 DSH **主界面左侧「插件」**，点击右上角「添加插件」。入口不在设置中的「内置插件」列表里。
 3. 粘贴下载包的完整本地路径，例如：
 
    ```text
-   D:\Plugins\dsh-markdown-notes-0.5.2.tgz
+   D:\Plugins\dsh-markdown-notes-0.5.3.tgz
    ```
 
 4. 按提示安装、启用；如果提示需要重启，重启 DSH。
@@ -76,7 +76,7 @@ Release 安装包已包含构建产物，不需要单独安装 Node.js、React �
 
 关闭正在编辑的笔记并确认显示「已保存」，然后通过 DSH 插件页面卸载旧版、安装新版并重启。笔记与保存位置配置独立于安装包，卸载插件不会删除它们。
 
-安装包声明了与 DSH `0.2.0-rc.2` 的兼容性。如果新版本 DSH 拒绝安装，请先核对兼容性，不要直接忽略版本检查。
+安装包通过 `engines.dsh` 声明兼容 DSH 0.2 系列（`^0.2.0-rc.2`）。如果更新的 DSH（例如 0.3）拒绝安装，请先核对兼容性，不要直接忽略版本检查。
 
 ## 使用
 
