@@ -38,11 +38,15 @@
   --dsn-ease-enter: cubic-bezier(0, 0, .58, 1);
   --dsn-ease-exit: cubic-bezier(.4, 0, 1, 1);
   --dsn-rail: 256px;
+  /* Room above the page for window controls. Only macOS draws them over the page; DSH's Windows frame already starts below its
+   * title bar, so the host's own pages add the clearance under darwin only, and so does this page. */
+  --dsn-frame-top: 0px;
   position: relative; display: grid; grid-template-columns: var(--dsn-rail) minmax(0, 1fr);
   width: 100%; height: 100%; min-height: 0; overflow: hidden;
   color: var(--dsn-fg); background: var(--dsn-bg); font: 13px/1.5 var(--dsn-font); color-scheme: light dark;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
+[data-platform='darwin'] .dsn-root { --dsn-frame-top: var(--dsh-frame-top-clearance, 0px); }
 .dsn-root[data-rail='hidden'], .dsn-root:not([data-layout='wide']) { grid-template-columns: 0px minmax(0, 1fr); }
 .dsn-root[data-animate] { transition: grid-template-columns .32s var(--dsn-ease-standard); }
 .dsn-root *, .dsn-root *::before, .dsn-root *::after { box-sizing: border-box; }
@@ -80,7 +84,7 @@
  * the column edge. As a drawer it slides the full width in and back out over a fading scrim.
  */
 .dsn-rail-slot { grid-area: 1 / 1; display: flex; justify-content: flex-end; min-width: 0; min-height: 0; overflow: hidden; }
-.dsn-rail { flex: none; width: var(--dsn-rail); display: flex; flex-direction: column; min-height: 0; padding-top: var(--dsh-frame-top-clearance, 0px); background: var(--dsn-bg-2); border-right: 1px solid var(--dsn-line); }
+.dsn-rail { flex: none; width: var(--dsn-rail); display: flex; flex-direction: column; min-height: 0; padding-top: var(--dsn-frame-top); background: var(--dsn-bg-2); border-right: 1px solid var(--dsn-line); }
 .dsn-rail[data-overlay] { position: absolute; z-index: 30; inset: 0 auto 0 0; width: min(300px, 86%); box-shadow: 16px 0 48px -16px var(--dsn-scrim); animation: dsn-drawer-in .36s var(--dsn-ease-enter) both; }
 .dsn-rail[data-overlay][data-leaving] { animation: dsn-drawer-out .24s var(--dsn-ease-exit) both; }
 .dsn-scrim { position: absolute; z-index: 29; inset: 0; padding: 0; border: 0; background: var(--dsn-mask); cursor: default; animation: dsn-fade .3s ease both; }
@@ -150,7 +154,7 @@
 .dsn-result mark { padding: 0 1px; border-radius: 3px; background: color-mix(in srgb, var(--dsn-accent) 22%, transparent); color: inherit; }
 
 /* Main column */
-.dsn-main { grid-area: 1 / 2; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: var(--dsh-frame-top-clearance, 0px); }
+.dsn-main { grid-area: 1 / 2; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: var(--dsn-frame-top); }
 .dsn-bar { flex: none; display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--dsn-line); }
 .dsn-heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin-left: 4px; }
 .dsn-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
@@ -291,7 +295,7 @@
 .dsn-destination[data-current] { color: var(--dsn-fg-3); cursor: default; }
 
 /* Toast: top of the content area, clear of the editor's bottom edge. */
-.dsn-toast-region { position: absolute; z-index: 70; left: 50%; top: calc(var(--dsh-frame-top-clearance, 0px) + 62px); transform: translateX(-50%); pointer-events: none; }
+.dsn-toast-region { position: absolute; z-index: 70; left: 50%; top: calc(var(--dsn-frame-top) + 62px); transform: translateX(-50%); pointer-events: none; }
 .dsn-root[data-layout='wide'][data-rail='shown'] .dsn-toast-region { left: calc(50% + var(--dsn-rail) / 2); }
 .dsn-toast { display: flex; align-items: center; gap: 10px; max-width: min(520px, calc(100vw - 48px)); padding: 8px 6px 8px 14px; border-radius: 12px; background: var(--dsn-primary); color: var(--dsn-on-primary); font-size: 13px; box-shadow: 0 16px 40px -12px var(--dsn-scrim); pointer-events: auto; animation: dsn-toast-in .26s var(--dsn-ease); }
 .dsn-toast > svg.lucide { color: var(--dsn-success); }
