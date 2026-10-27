@@ -6,7 +6,13 @@
 
 [下载安装包](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) · [使用说明](#使用) · [开发](#开发) · [反馈问题](https://github.com/Wanyi424/dsh-markdown-notes/issues)
 
-![笔记阅读界面](docs/images/reading.png)
+![笔记阅读界面](docs/images/preview-reading.png)
+
+当前版本预览来自加载真实插件构建产物的隔离浏览器环境，使用插件自带示例文档。市场预览图由仓库根目录的 [screenshots.json](screenshots.json) 声明。
+
+![编辑与预览并排](docs/images/preview-split.png)
+
+![深色阅读界面](docs/images/preview-dark.png)
 
 > 社区插件，与 DeepSeek 官方无隶属关系。目前面向 **Windows 桌面版 DSH 0.2 系列**开发（`engines.dsh` 声明 `^0.2.0-rc.2`），在 0.2.0-rc.2 上验证过；其他版本尚未验证。
 
@@ -59,12 +65,12 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) 下载 `dsh-markdown-notes-0.5.4.tgz`，**无需解压**。
+1. 从 [Releases](https://github.com/Wanyi424/dsh-markdown-notes/releases/latest) 下载 `dsh-markdown-notes-0.5.6.tgz`，**无需解压**。
 2. 打开 DSH **主界面左侧「插件」**，点击右上角「添加插件」。入口不在设置中的「内置插件」列表里。
 3. 粘贴下载包的完整本地路径，例如：
 
    ```text
-   D:\Plugins\dsh-markdown-notes-0.5.4.tgz
+   D:\Plugins\dsh-markdown-notes-0.5.6.tgz
    ```
 
 4. 按提示安装、启用；如果提示需要重启，重启 DSH。

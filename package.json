@@ -1,6 +1,6 @@
 {
   "name": "dsh-markdown-notes",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "description": "简单的 Markdown 笔记：多文档、编辑预览、本地自动保存。",
   "type": "module",
   "license": "MIT",

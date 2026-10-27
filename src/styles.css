@@ -7,6 +7,9 @@
   --dsn-fg: var(--dsw-alias-label-primary);
   --dsn-fg-2: var(--dsw-alias-label-secondary);
   --dsn-fg-3: var(--dsw-alias-label-tertiary);
+  --dsn-thumb: color-mix(in srgb, var(--dsn-fg-3) 34%, transparent);
+  --dsn-thumb-hover: color-mix(in srgb, var(--dsn-fg-3) 62%, transparent);
+  --dsn-thumb-active: color-mix(in srgb, var(--dsn-fg-3) 80%, transparent);
   --dsn-bg: var(--dsw-alias-bg-base);
   --dsn-bg-2: var(--dsw-alias-bg-layer-1);
   --dsn-overlay: var(--dsw-alias-bg-overlay);
@@ -58,6 +61,16 @@
 .dsn-copy-buffer { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .dsn-spin { animation: dsn-spin .9s linear infinite; }
 
+/* Match the performance panel's scrollbars. Standard properties must be auto for Chromium's pseudo-elements.
+ * Keep gutter sizing local to each pane; outline navigation retains its hidden scrollbars. */
+.dsn-root * { scrollbar-width: auto; scrollbar-color: auto; }
+.dsn-root ::-webkit-scrollbar { width: 10px; height: 10px; }
+.dsn-root ::-webkit-scrollbar-track { margin: 4px 0; background: transparent; }
+.dsn-root ::-webkit-scrollbar-corner { background: transparent; }
+.dsn-root ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: var(--dsn-thumb) padding-box; }
+.dsn-root ::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: var(--dsn-thumb-hover); }
+.dsn-root ::-webkit-scrollbar-thumb:active { border-width: 2px; background-color: var(--dsn-thumb-active); }
+
 /* Buttons. A disabled state dims only after 120 ms so brief busy states (opening a note) never flicker. */
 .dsn-button, .dsn-icon-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none;
@@ -100,7 +113,7 @@
 .dsn-filter-clear { position: absolute; right: 4px; display: inline-flex; padding: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--dsn-fg-3); cursor: pointer; }
 .dsn-filter-clear:hover { background: var(--dsn-hover); color: var(--dsn-fg); }
 .dsn-filter-clear svg.lucide { width: 14px; height: 14px; }
-.dsn-rail-body { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 20px; scrollbar-width: thin; scrollbar-color: var(--dsn-line-2) transparent; }
+.dsn-rail-body { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 20px; }
 
 /*
  * Tree rows: 30 px, row actions on hover or focus. Every row reserves a 16 px twistie, so folders and notes of one level
@@ -188,9 +201,8 @@
 .dsn-editor { flex: 1; min-height: 0; overflow: hidden; }
 .dsn-editor .cm-editor { height: 100%; }
 .dsn-root .dsn-editor .cm-content:focus-visible { outline: none; }
-.dsn-editor .cm-scroller { scrollbar-width: thin; scrollbar-color: var(--dsn-line-2) transparent; }
 .dsn-reading { position: relative; flex: 1; display: flex; min-width: 0; min-height: 0; }
-.dsn-reading-pane { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: var(--dsn-line-2) transparent; scroll-behavior: smooth; }
+.dsn-reading-pane { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; scroll-behavior: smooth; }
 .dsn-root .dsn-reading-pane:focus-visible { outline: none; }
 .dsn-reading-layout { display: flex; justify-content: center; gap: 48px; padding: 0 44px; }
 .dsn-reading-main { flex: 0 1 760px; min-width: 0; }
@@ -273,7 +285,7 @@
 .dsn-dialog form { display: flex; flex-direction: column; max-height: calc(100vh - 50px); }
 .dsn-dialog header { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px 14px 4px 22px; }
 .dsn-dialog h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
-.dsn-dialog-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 22px; scrollbar-width: thin; }
+.dsn-dialog-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 22px; }
 .dsn-dialog footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px 20px; }
 .dsn-dialog-text { margin: 0 0 6px; font-size: 13.5px; line-height: 1.75; color: var(--dsn-fg-2); overflow-wrap: anywhere; }
 .dsn-dialog-error { margin: 12px 0 4px; padding: 8px 12px; border-radius: 9px; background: color-mix(in srgb, var(--dsn-danger) 8%, var(--dsn-bg)); color: var(--dsn-danger); font-size: 12.5px; white-space: pre-line; overflow-wrap: anywhere; animation: dsn-drop .2s var(--dsn-ease); }
@@ -284,7 +296,7 @@
 .dsn-input:focus { border-color: var(--dsn-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsn-accent) 18%, transparent); }
 .dsn-input-row .dsn-button { height: 36px; }
 .dsn-path { display: block; margin: 0 0 4px; padding: 7px 10px; border-radius: 8px; background: var(--dsn-bg-2); font: 12px/1.6 var(--dsn-mono); color: var(--dsn-fg-2); overflow-wrap: anywhere; user-select: all; }
-.dsn-destinations { display: grid; gap: 1px; max-height: min(340px, 50vh); overflow: auto; margin: 4px -6px 0; padding: 4px; border: 1px solid var(--dsn-line); border-radius: 10px; scrollbar-width: thin; }
+.dsn-destinations { display: grid; gap: 1px; max-height: min(340px, 50vh); overflow: auto; margin: 4px -6px 0; padding: 4px; border: 1px solid var(--dsn-line); border-radius: 10px; }
 .dsn-destination { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 calc(10px + var(--depth) * 16px); border-radius: 7px; font-size: 13px; cursor: pointer; transition: background-color .12s; }
 .dsn-destination:hover:not([data-current]) { background: var(--dsn-hover); }
 .dsn-destination:has(input:checked) { background: color-mix(in srgb, var(--dsn-accent) 12%, transparent); }
@@ -352,7 +364,7 @@
 .dsn-prose blockquote blockquote { margin: 12px 0; background: none; }
 .dsn-prose hr { height: 1px; border: 0; margin: 40px 0; background: linear-gradient(90deg, transparent, var(--dsn-line-2) 18%, var(--dsn-line-2) 82%, transparent); }
 .dsn-prose :not(pre) > code { font: 500 .86em/1.7 var(--dsn-mono); background: var(--dsw-alias-markdown-inline-code); color: var(--dsn-fg); padding: 2px 6px; border-radius: 5px; overflow-wrap: anywhere; }
-.dsn-prose pre { margin: 0; font: 13px/1.75 var(--dsn-mono); white-space: pre; tab-size: 2; overflow: auto; scrollbar-width: thin; }
+.dsn-prose pre { margin: 0; font: 13px/1.75 var(--dsn-mono); white-space: pre; tab-size: 2; overflow: auto; }
 .dsn-prose pre code { font: inherit; background: none; color: inherit; padding: 0; }
 .dsn-code { margin: 22px 0; border: 1px solid var(--dsn-line); border-radius: 12px; overflow: hidden; background: var(--dsw-alias-markdown-code-block); }
 .dsn-code figcaption { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 4px 14px; min-height: 34px; color: var(--dsn-fg-3); background: var(--dsw-alias-markdown-code-block-banner); font: 500 12px/20px var(--dsn-font); }
@@ -371,7 +383,7 @@
 .dsn-prose-dark .hljs-number, .dsn-prose-dark .hljs-literal { color: #f5a97f; }
 .dsn-prose-dark .hljs-title, .dsn-prose-dark .hljs-section { color: #8aadf4; }
 .dsn-prose-dark .hljs-comment, .dsn-prose-dark .hljs-quote { color: #8b95a7; }
-.dsn-table-scroll { overflow: auto; margin: 24px 0; border: 1px solid var(--dsn-line); border-radius: 10px; scrollbar-width: thin; }
+.dsn-table-scroll { overflow: auto; margin: 24px 0; border: 1px solid var(--dsn-line); border-radius: 10px; }
 .dsn-prose table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.6; margin: 0; }
 .dsn-prose :where(th, td) { border: 0; border-bottom: 1px solid var(--dsn-line); padding: 10px 14px; text-align: left; min-width: 96px; }
 .dsn-prose th { background: var(--dsn-bg-2); font-weight: 600; }
