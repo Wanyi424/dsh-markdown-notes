@@ -2,9 +2,9 @@
 
 项目代码使用 MIT 许可证。以下第三方内容保留自己的许可，不因包含在本仓库中而改变许可。
 
-## 默认示例文档
+## 内置示例文档
 
-`src/assets/sample.md` 改编自 [doocs/md 的中文示例](https://github.com/doocs/md/blob/main/apps/web/src/assets/example/markdown.zh-CN.md)。本项目保留示例主体，移除了“推荐阅读”及之后的文章链接、分隔线和二维码，并将“链接与图片”中的主页与图片替换为维护者主页及本项目宣传图。
+`src/assets/sample.md` 改编自 [doocs/md 的中文示例](https://github.com/doocs/md/blob/main/apps/web/src/assets/example/markdown.zh-CN.md)。本项目保留示例主体，移除了“推荐阅读”及之后的文章链接、分隔线和二维码，删改了只适用于原编辑器或微信公众号的功能说明，并将“链接与图片”中的主页与图片替换为维护者主页及本项目宣传图，表格示例中的联系人换为本项目作者。
 
 - 上游：<https://github.com/doocs/md>
 - 作者：Doocs

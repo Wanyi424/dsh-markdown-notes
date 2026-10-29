@@ -56,7 +56,7 @@ export function createHandler(store: NotesStore) {
 export { NotesSettings };
 export async function apply(ctx: HostContext, config: { directory?: string } = {}, settings = new NotesSettings()) {
   const store = new NotesStore(await settings.directory(config.directory?.trim() || undefined), {
-    seed: true, persistDirectory: directory => settings.saveDirectory(directory), settingsFile: settings.file,
+    persistDirectory: directory => settings.saveDirectory(directory), settingsFile: settings.file,
   });
   // The connection registry owns disposal and the host's existing transport/trust boundary.
   ctx.connection.fetch.register({ path: API_PATH, methods: ['POST'], requestBody: 'buffered', fetch: createHandler(store) });

@@ -1,8 +1,9 @@
-export interface NoteSummary { name: string }
+/** `modified`: the file's last write, in milliseconds since the epoch. */
+export interface NoteSummary { name: string; modified: number }
 export interface Note { name: string; content: string }
 export interface Library { directory: string; notes: NoteSummary[]; folders: string[] }
 export interface ImportFile { name: string; content: string }
-export interface ImportResult { notes: NoteSummary[]; errors: string[] }
+export interface ImportResult { notes: { name: string }[]; errors: string[] }
 export interface MigrationResult { directory: string; previousDirectory: string; moved: number; oldDirectoryRemoved: boolean; warnings: string[] }
 export const MAX_NOTE_BYTES = 2 * 1024 * 1024;
 export const MAX_IMPORT_BYTES = 20 * 1024 * 1024;

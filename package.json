@@ -1,6 +1,6 @@
 {
   "name": "dsh-markdown-notes",
-  "version": "0.5.7",
+  "version": "0.6.0",
   "description": "随手记、随时读：阅读、编辑、并排预览一键切换，附大纲与三套排版主题，支持公式与 Mermaid，多级文件夹管理，自动存为本地 .md 文件。",
   "type": "module",
   "license": "MIT",

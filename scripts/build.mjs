@@ -13,6 +13,8 @@ const chunks = [
   ['src/client.tsx', 'client.js'], ['src/page.tsx', 'client.page.js'],
   ['src/editor.tsx', 'client.editor.js'], ['src/preview.tsx', 'client.preview.js'],
   ['src/mermaid-chunk.ts', 'client.mermaid.js'], ['src/infographic-chunk.ts', 'client.infographic.js'],
+  // The built-in sample is text only; it loads when someone opens it.
+  ['src/sample.ts', 'client.sample.js'],
 ];
 const clients = await Promise.all(chunks.map(([entry, file]) => build({
   entryPoints: [entry], outfile: `lib/${file}`, bundle: true,

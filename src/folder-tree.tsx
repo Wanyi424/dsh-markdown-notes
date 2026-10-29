@@ -43,8 +43,8 @@ function navigate(event: React.KeyboardEvent<HTMLElement>, c: NotesController, e
   }
 }
 
-export const FolderTree = memo(function FolderTree({ c, t, notes, folders, expanded: open, active, folder, folderFocus, busy, dropTarget, onMenu, onCreateIn, onRename, onDragNote, onPicked }: {
-  c: NotesController; t: Translate; notes: NoteSummary[]; folders: string[]; expanded: string[]; active: string | null; folder: string; folderFocus: boolean;
+export const FolderTree = memo(function FolderTree({ c, t, notes, folders, expanded: open, active, library, folder, folderFocus, busy, dropTarget, onMenu, onCreateIn, onRename, onDragNote, onPicked }: {
+  c: NotesController; t: Translate; notes: NoteSummary[]; folders: string[]; expanded: string[]; active: string | null; library: boolean; folder: string; folderFocus: boolean;
   busy: boolean; dropTarget: string | null; onMenu(target: TreeTarget, anchor: MenuAnchor): void; onCreateIn(folder: string): void; onRename(): void;
   onDragNote(path: string | null): void; onPicked(): void;
 }) {
@@ -106,7 +106,8 @@ export const FolderTree = memo(function FolderTree({ c, t, notes, folders, expan
   };
   return <nav className="dsn-tree" aria-label={t('list')} data-animate={animate || undefined} onKeyDown={event => navigate(event, c, expanded)}>
     <div className="dsn-row dsn-root-row" data-folder="" data-selected={(folderFocus && folder === '') || undefined} data-drop={dropTarget === '' || undefined}>
-      <button type="button" className="dsn-row-main" aria-label={t('libraryRoot')} disabled={busy} onClick={() => c.selectFolder('')} onContextMenu={menu({ kind: 'root', path: '' })}>
+      <button type="button" className="dsn-row-main" aria-label={t('libraryRoot')} aria-current={library ? 'page' : undefined} disabled={busy}
+        onClick={() => { void c.showLibrary(); onPicked(); }} onContextMenu={menu({ kind: 'root', path: '' })}>
         <Library /><span>{t('libraryRoot')}</span><small>{notes.length}</small>
       </button>
     </div>
@@ -130,4 +131,33 @@ export const FilterResults = memo(function FilterResults({ c, t, matches, active
       <FileText /><span><strong>{highlight(stem(note.name), q)}</strong>{parentFolder(note.name) && <small>{parentFolder(note.name).split('/').join(' / ')}</small>}</span>
     </button>)}
   </div>;
+});
+
+/** "今天 14:02", "昨天 21:15", then the date; the year only when it is not the current one. */
+function when(time: number, t: Translate, now: Date) {
+  const date = new Date(time), locale = t('dateLocale');
+  const midnight = (day: Date) => new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const days = Math.round((midnight(now) - midnight(date)) / 86_400_000);
+  const clock = date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  if (days <= 0) return t('today', { time: clock });
+  if (days === 1) return t('yesterday', { time: clock });
+  return date.toLocaleDateString(locale, { year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric', month: 'short', day: 'numeric' });
+}
+
+/** 全部笔记: every note across folders, the latest edit first. */
+export const AllNotes = memo(function AllNotes({ c, t, notes, busy }: { c: NotesController; t: Translate; notes: NoteSummary[]; busy: boolean }) {
+  const sorted = useMemo(() => [...notes].sort((a, b) => b.modified - a.modified || a.name.localeCompare(b.name, 'zh-CN', { numeric: true })), [notes]);
+  const now = new Date();
+  return <div className="dsn-library"><div className="dsn-library-body">
+    <p className="dsn-library-caption">{t('sortedByRecent')}</p>
+    <ul className="dsn-library-list" aria-label={t('libraryRoot')}>
+      {sorted.map(note => {
+        const folder = parentFolder(note.name), date = new Date(note.modified);
+        return <li key={note.name}><button type="button" className="dsn-entry" title={note.name} disabled={busy} onClick={() => void c.open(note.name)}>
+          <FileText /><span><strong>{stem(note.name)}</strong>{folder && <small>{folder.split('/').join(' / ')}</small>}</span>
+          <time dateTime={date.toISOString()} title={date.toLocaleString(t('dateLocale'))}>{when(note.modified, t, now)}</time>
+        </button></li>;
+      })}
+    </ul>
+  </div></div>;
 });

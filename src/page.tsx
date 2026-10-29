@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from 'react';
-import { BookOpen, CircleAlert, Columns2, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen, PenLine, Pencil, Plus, RefreshCw, Search, TableOfContents, Trash2, Upload, X, Copy } from 'lucide-react';
+import { BookMarked, BookOpen, CircleAlert, Columns2, CopyPlus, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen, PenLine, Pencil, Plus, RefreshCw, Search, TableOfContents, Trash2, Upload, X, Copy } from 'lucide-react';
 import type { NotesController, ViewMode } from './controller';
 import type { Translate } from './dictionaries';
 import type { Heading } from './markdown';
 import { MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_NOTE_BYTES, type ImportFile } from './contracts';
 import { loadChunk } from './lazy-chunk';
 import { synchronizeScroll, type EditorScrollPort } from './scroll-sync';
-import { FilterResults, FolderTree, NOTE_DRAG, stem, type TreeTarget } from './folder-tree';
+import { AllNotes, FilterResults, FolderTree, NOTE_DRAG, stem, type TreeTarget } from './folder-tree';
 import { Outline, OutlineRail, outlineOf } from './outline';
 import { Dialog, LayerContext, Menu, Segmented, Toast, anchorFrom, usePresence, type MenuAnchor, type MenuEntry } from './ui';
 import { baseName, parentFolder, inFolder } from './note-path';
@@ -15,6 +15,9 @@ import css from './styles.css';
 const NS = 'markdownNotes';
 const MarkdownEditor = lazy(() => loadChunk<typeof import('./editor')>('client.editor.js').then(module => ({ default: module.MarkdownEditor })));
 const MarkdownPreview = lazy(() => loadChunk<typeof import('./preview')>('client.preview.js').then(module => ({ default: module.MarkdownPreview })));
+const loadSample = () => loadChunk<typeof import('./sample')>('client.sample.js').then(module => module.SAMPLE_CONTENT);
+/** Identifies the sample where a note path would; note paths never contain control characters. */
+const SAMPLE_DOC = '\0sample';
 declare global { interface Window { __DSH_DIRECTORY_PICKER__?: { pick(): Promise<string | null> } } }
 export interface ClientContext {
   locale: { register(namespace: string, dict: Record<string, unknown>): () => void; bind(namespace: string): Translate;
@@ -144,6 +147,9 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   const dragNote = useRef<string | null>(null), fileDepth = useRef(0);
   const [dragKind, setDragKind] = useState<'files' | 'note' | null>(null), [dropTarget, setDropTarget] = useState<string | null>(null);
   const wide = layout === 'wide', railShown = wide ? railPref : railOverlay, reading = state.mode === 'preview', rail = usePresence(railShown);
+  // The document on screen: the open note or the sample. None while 全部笔记 is shown, which counts only once the library has
+  // loaded: at startup the note edited last opens instead, and the page must not flash 全部笔记 first.
+  const sample = state.view === 'sample', doc = sample ? SAMPLE_DOC : state.active, library = state.view === 'library' && state.loaded;
   // The rail column animates only after the first frame, so measuring the real width at startup does not slide the page.
   const [settled, setSettled] = useState(false);
   useEffect(() => { const frame = requestAnimationFrame(() => setSettled(true)); return () => cancelAnimationFrame(frame); }, []);
@@ -151,18 +157,18 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   useEffect(() => { if (wide) setRailOverlay(false); }, [wide]);
   useEffect(() => {
     if (state.mode === 'split' && editorPort && previewPane) return synchronizeScroll(editorPort, previewPane);
-  }, [state.mode, state.active, editorPort, previewPane]);
-  const [preview, setPreview] = useState({ name: state.active, content: state.content });
+  }, [state.mode, doc, editorPort, previewPane]);
+  const [preview, setPreview] = useState({ name: doc, content: state.content });
   useEffect(() => {
     if (state.mode === 'edit') return;
-    const timer = setTimeout(() => setPreview({ name: state.active, content: state.content }), state.mode === 'split' && state.active === preview.name ? 300 : 0);
+    const timer = setTimeout(() => setPreview({ name: doc, content: state.content }), state.mode === 'split' && doc === preview.name ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [state.active, state.content, state.mode]);
-  const deferred = preview.name === state.active ? preview.content : state.content;
+  }, [doc, state.content, state.mode]);
+  const deferred = preview.name === doc ? preview.content : state.content;
   const save = () => { void c.flush().catch(() => {}); };
   useEffect(() => { void c.load(); return () => { void c.flush().catch(() => {}); }; }, [c]);
-  useEffect(() => { readPane.current?.scrollTo({ top: 0 }); setRenaming(false); }, [state.active]);
-  useEffect(() => setTocOpen(false), [state.active, state.mode, roomy]);
+  useEffect(() => { readPane.current?.scrollTo({ top: 0 }); setRenaming(false); }, [doc]);
+  useEffect(() => setTocOpen(false), [doc, state.mode, roomy]);
   useEffect(() => { if (renaming) { titleInput.current?.focus(); titleInput.current?.select(); } }, [renaming]);
   // Leaving the editor removes the focused element; hand focus to the article so Ctrl+E and paging keys keep working.
   // A layout effect runs in the same commit as the removal, so no key press can land on <body> in between.
@@ -180,6 +186,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
     if (wide) setRailPref(shown => { saveFlag(RAIL_KEY, !shown); return !shown; }); else setRailOverlay(shown => !shown);
   }, [wide]);
   const picked = useCallback(() => setRailOverlay(false), []);
+  const openSample = () => { if (!sample) void c.showSample(loadSample); picked(); };
   const beginRename = useCallback(() => {
     const active = c.getSnapshot().active; if (!active) return;
     setMenu(null); cancelledRename.current = false; setTitle(stem(active)); setRenaming(true);
@@ -272,7 +279,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   }, [state.notes, q]);
   const outline = useMemo(() => outlineOf(headings), [headings]);
   // Contents: docked beside the article when reading with room for it, otherwise ticks on the right edge of the preview.
-  const previewShown = state.mode !== 'edit' && !!state.content, hasOutline = previewShown && outline.length >= 2, dockable = reading && roomy;
+  const previewShown = !!doc && state.mode !== 'edit' && !!state.content, hasOutline = previewShown && outline.length >= 2, dockable = reading && roomy;
   const docked = hasOutline && dockable && outlinePref, railed = hasOutline && !docked, tocPressed = dockable ? outlinePref : tocOpen;
   const toggleOutline = () => { if (dockable) setOutlinePref(shown => { saveFlag(OUTLINE_KEY, !shown); return !shown; }); else setTocOpen(open => !open); };
   const themeEntries = (): MenuEntry[] => (Object.keys(THEMES) as PreviewTheme[]).map(value => ({
@@ -281,6 +288,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
   const status = state.saving ? 'saving' : dirty ? state.error ? 'failed' : 'pending' : 'saved';
   const dropName = dropTarget === null ? '' : dropTarget ? baseName(dropTarget) : t('rootFolder');
   const crumbs = state.active ? parentFolder(state.active).split('/').filter(Boolean) : [];
+  const targetFolder = state.folder ? baseName(state.folder) : t('rootFolder');
 
   // Docked, the rail's column animates its width (transitionend on the root); as a drawer, the rail animates itself.
   return <section ref={setRoot} className="dsn-root" data-layout={layout ?? undefined} data-rail={railShown ? 'shown' : 'hidden'} data-animate={settled || undefined} data-dragging={dragKind ?? undefined} aria-label={t('title')}
@@ -313,7 +321,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
       if (!(event.ctrlKey || event.metaKey) || event.altKey || (event.target as Element).closest('dialog')) return;
       const key = event.key.toLowerCase();
       if (key === 's') { event.preventDefault(); save(); }
-      else if (key === 'e' && state.active) { event.preventDefault(); void c.toggleEditing(); }
+      else if (key === 'e' && doc) { event.preventDefault(); void c.toggleEditing(); }
     }}>
     <style>{css}</style>
     <LayerContext.Provider value={root}>
@@ -322,7 +330,7 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
         onAnimationEnd={event => { if (rail.leaving && event.target === event.currentTarget) rail.settle(); }}>
         <header className="dsn-rail-head">
           <h1>{t('title')}</h1>
-          <button type="button" className="dsn-icon-button" aria-label={t('new')} title={t('newIn', { folder: state.folder ? baseName(state.folder) : t('rootFolder') })} disabled={state.busy} onClick={() => void create()}><Plus /></button>
+          <button type="button" className="dsn-icon-button" aria-label={t('new')} title={t('newIn', { folder: targetFolder })} disabled={state.busy} onClick={() => void create()}><Plus /></button>
           <button type="button" className="dsn-icon-button" aria-label={t('libraryMenu')} title={t('libraryMenu')} aria-haspopup="menu" onClick={event => showMenu(t('libraryMenu'), libraryEntries())(anchorFrom(event.currentTarget))}><MoreHorizontal /></button>
         </header>
         <div className="dsn-filter"><Search />
@@ -336,14 +344,21 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
         </div>
         <div className="dsn-rail-body">
           {q ? <FilterResults c={c} t={t} matches={matches} active={state.active} query={query} onPicked={picked} />
-            : <FolderTree c={c} t={t} notes={state.notes} folders={state.folders} expanded={state.expanded} active={state.active} folder={state.folder} folderFocus={state.folderFocus}
-              busy={state.busy} dropTarget={dropTarget} onMenu={stableTreeMenu} onCreateIn={createIn} onRename={beginRename} onDragNote={onDragNote} onPicked={picked} />}
+            : <FolderTree c={c} t={t} notes={state.notes} folders={state.folders} expanded={state.expanded} active={state.active} library={library} folder={state.folder}
+              folderFocus={state.folderFocus} busy={state.busy} dropTarget={dropTarget} onMenu={stableTreeMenu} onCreateIn={createIn} onRename={beginRename} onDragNote={onDragNote} onPicked={picked} />}
         </div>
+        {/* The built-in sample lives outside the tree: it is not a file in the library. */}
+        <footer className="dsn-rail-foot">
+          <button type="button" className="dsn-rail-link" aria-current={sample ? 'page' : undefined} disabled={state.busy} onClick={openSample}><BookMarked /><span>{t('sample')}</span></button>
+        </footer>
       </aside></div>}
       {rail.value && !wide && <button type="button" className="dsn-scrim" data-leaving={rail.leaving || undefined} aria-label={t('hideList')} onClick={() => setRailOverlay(false)} />}
       <main ref={setMain} className="dsn-main" aria-busy={state.busy}>
         <header className="dsn-bar">
           <button type="button" className="dsn-icon-button" title={t(railShown ? 'hideList' : 'showList')} aria-label={t(railShown ? 'hideList' : 'showList')} onClick={toggleRail}>{railShown ? <PanelLeftClose /> : <PanelLeftOpen />}</button>
+          {library && <div className="dsn-heading"><h2 className="dsn-view-title">{t('libraryRoot')}</h2><span className="dsn-tag">{t('count', { count: state.notes.length })}</span></div>}
+          {library && state.notes.length > 0 && <button type="button" className="dsn-button dsn-tool" title={t('newIn', { folder: targetFolder })} disabled={state.busy} onClick={() => void create()}><Plus /><span>{t('new')}</span></button>}
+          {sample && <div className="dsn-heading"><h2 className="dsn-view-title">{t('sample')}</h2><span className="dsn-tag">{t('sampleTag')}</span></div>}
           {state.active && <div className="dsn-heading">
             {crumbs.length > 0 && <nav className="dsn-crumbs" aria-label={t('folder')}>{crumbs.map((part, i) => {
               const path = crumbs.slice(0, i + 1).join('/');
@@ -354,19 +369,22 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
                 onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); cancelledRename.current = true; setRenaming(false); } }} />
             </form> : <button type="button" className="dsn-document-title" onClick={beginRename} disabled={state.busy} title={`${t('rename')} · ${state.active}`}>{stem(state.active)}</button>}
           </div>}
-          {state.active && <>
-            <span className="dsn-save" data-state={status} aria-live="polite"><i aria-hidden />{t(status)}</span>
+          {doc && <>
+            {!sample && <span className="dsn-save" data-state={status} aria-live="polite"><i aria-hidden />{t(status)}</span>}
             {hasOutline && <button ref={tocButton} type="button" className="dsn-button dsn-tool" data-outline-toggle aria-pressed={tocPressed} title={t(tocPressed ? 'hideOutline' : 'showOutline')}
               onClick={toggleOutline}><TableOfContents /><span>{t('outline')}</span></button>}
             {previewShown && <button type="button" className="dsn-button dsn-tool dsn-theme-tool" aria-haspopup="menu" title={t('themeMenu')}
               onClick={event => showMenu(t('themeMenu'), themeEntries())(anchorFrom(event.currentTarget))}><Palette /><span>{t('previewTheme')}</span></button>}
+            {/* The sample is read-only: reading, or its source beside the rendering. */}
             <Segmented<ViewMode> label={t('modeLabel')} value={state.mode} disabled={state.busy} onChange={mode => void c.setMode(mode)} options={[
               { value: 'preview', label: t('read'), icon: <BookOpen />, title: `${t('read')} · Ctrl+E` },
-              { value: 'edit', label: t('edit'), icon: <PenLine />, title: `${t('edit')} · Ctrl+E` },
-              { value: 'split', label: t('split'), icon: <Columns2 /> },
+              ...(sample ? [] : [{ value: 'edit' as const, label: t('edit'), icon: <PenLine />, title: `${t('edit')} · Ctrl+E` }]),
+              { value: 'split', label: t('split'), icon: <Columns2 />, title: sample ? `${t('split')} · Ctrl+E` : undefined },
             ]} />
-            <button type="button" className="dsn-icon-button" title={t('documentMenu')} aria-label={t('documentMenu')} aria-haspopup="menu"
-              onClick={event => showMenu(t('documentMenu'), documentEntries())(anchorFrom(event.currentTarget))}><MoreHorizontal /></button>
+            {sample ? <button type="button" className="dsn-button dsn-button-secondary dsn-tool" title={t('saveSampleIn', { folder: targetFolder })} disabled={state.busy}
+              onClick={() => void c.saveSample(`${t('sample')}.md`)}><CopyPlus /><span>{t('saveSample')}</span></button>
+              : <button type="button" className="dsn-icon-button" title={t('documentMenu')} aria-label={t('documentMenu')} aria-haspopup="menu"
+                onClick={event => showMenu(t('documentMenu'), documentEntries())(anchorFrom(event.currentTarget))}><MoreHorizontal /></button>}
           </>}
         </header>
         {state.error && !dialog && <div className="dsn-banner" role="alert"><CircleAlert /><span>{state.error}</span>
@@ -374,15 +392,15 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
             <button type="button" className="dsn-button dsn-button-secondary" onClick={() => openDialog({ kind: 'copy' })} disabled={state.busy || state.saving}>{t('saveCopy')}</button></>}
           <button type="button" className="dsn-icon-button" aria-label={t('close')} onClick={c.dismissError}><X /></button></div>}
         {dragKind === 'files' && <div className="dsn-drop" role="status"><Upload /><strong>{state.busy ? t('busyImport') : t('dropInto', { folder: dropName })}</strong><span>{t('dropHint')}</span></div>}
-        {state.active ? <>
+        {doc ? <>
           <div className={`dsn-content dsn-mode-${state.mode}`}>
             {!reading && <div className="dsn-source-pane"><Suspense fallback={<p className="dsn-rendering">…</p>}>
-              <MarkdownEditor key={state.active} value={state.content} disabled={state.busy} label={t('content')} placeholder={t('placeholder')} onChange={value => c.edit(value)} onSave={save} onReady={setEditorPort} />
+              <MarkdownEditor key={doc} value={state.content} disabled={state.busy || sample} label={t('content')} placeholder={t('placeholder')} onChange={value => c.edit(value)} onSave={save} onReady={setEditorPort} />
             </Suspense></div>}
             {state.mode !== 'edit' && <div className="dsn-reading" data-rail={railed || undefined}><div className={`dsn-reading-pane dsn-theme-${theme}`} ref={readingRef} tabIndex={-1}>
               <div className="dsn-reading-layout">
                 <div className="dsn-reading-main">
-                  {state.content ? <Suspense fallback={<p className="dsn-rendering">…</p>}><MarkdownPreview key={state.active} source={deferred} copyLabel={t('copyCode')} onHeadings={setHeadings} /></Suspense>
+                  {state.content ? <Suspense fallback={<p className="dsn-rendering">…</p>}><MarkdownPreview key={doc} source={deferred} copyLabel={t('copyCode')} onHeadings={setHeadings} /></Suspense>
                     : <div className="dsn-blank"><FileText /><h2>{t('blankTitle')}</h2><p>{t('blankHint')}</p>
                       <button type="button" className="dsn-button dsn-button-secondary" onClick={() => void c.setMode('edit')}><PenLine />{t('edit')}</button></div>}
                 </div>
@@ -391,14 +409,15 @@ export function NotesPage({ controller: c, ctx }: { controller: NotesController;
             </div>
             {railed && <OutlineRail headings={outline} pane={previewPane} label={t('outline')} open={tocOpen} onClose={closeToc} />}</div>}
           </div>
-          {!reading && <footer className="dsn-status"><span>{t('characters', { count: state.content.length.toLocaleString() })} · {t('lines', { count: countLines(state.content).toLocaleString() })}</span><span>{t('autosaveHint')}</span></footer>}
-        </> : <div className="dsn-welcome">
+          {!reading && <footer className="dsn-status"><span>{t('characters', { count: state.content.length.toLocaleString() })} · {t('lines', { count: countLines(state.content).toLocaleString() })}</span><span>{t(sample ? 'sampleHint' : 'autosaveHint')}</span></footer>}
+        </> : state.notes.length ? <AllNotes c={c} t={t} notes={state.notes} busy={state.busy} /> : <div className="dsn-welcome">
           {!state.loaded && state.busy ? <><LoaderCircle className="dsn-spin" /><p>{t('loading')}</p></> : <>
             <span className="dsn-welcome-mark"><NotebookPen /></span><h2>{t('empty')}</h2><p>{t('emptyHint')}</p>
             <div className="dsn-actions">
               <button type="button" className="dsn-button dsn-button-primary" disabled={state.busy} onClick={() => void create()}><Plus />{t('new')}</button>
               <button type="button" className="dsn-button dsn-button-secondary" disabled={state.busy} onClick={() => pickImport(state.folder)}><Upload />{t('importMarkdown')}</button>
             </div>
+            <button type="button" className="dsn-link" disabled={state.busy} onClick={openSample}><BookMarked />{t('sampleLink')}</button>
           </>}
         </div>}
       </main>

@@ -1,11 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, symlink, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NotesStore, noteName } from '../src/storage';
 import { createHandler } from '../src/host';
-import { SAMPLE_NAME, SAMPLE_CONTENT } from '../src/sample';
 import { PLUGIN_VERSION } from '../src/version';
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
@@ -27,7 +26,7 @@ test('Chinese Markdown persists as ordinary files and reopens from a new store',
   await reopened.rename('工作记录', '新的名称');
   assert.equal((await reopened.read('新的名称')).content, markdown);
   await reopened.delete('新的名称');
-  assert.deepEqual((await reopened.list()).notes, [{ name: '第二篇.md' }]);
+  assert.deepEqual((await reopened.list()).notes.map(note => note.name), ['第二篇.md']);
 });
 
 test('creating or renaming to an existing note never overwrites it', async t => {
@@ -56,7 +55,7 @@ test('external edits are kept, while a lost successful response can be retried',
   await writeFile(join(directory, 'note.md'), 'external edit');
   await assert.rejects(store.save('note', 'draft', 'first'), { code: 'conflict' });
   assert.equal((await store.read('note')).content, 'external edit');
-  assert.deepEqual((await store.list()).notes, [{ name: 'note.md' }]);
+  assert.deepEqual((await store.list()).notes.map(note => note.name), ['note.md']);
 });
 
 test('queued saves preserve order; a deleted file is not silently recreated', async t => {
@@ -93,20 +92,22 @@ test('Host API handles create/read/save/restart and reports conflict and malform
   assert.equal((await call(null)).status, 400);
 });
 
-test('welcome appears once on upgrade, preserves existing notes and stays deleted', async t => {
+test('the store writes no notes of its own; a sample left by an older version sorts like any note', async t => {
   const { directory, store } = await fixture(t);
-  await store.create('existing'); await store.save('existing', 'keep', '');
-  const upgraded = new NotesStore(directory, { seed: true });
-  assert.equal((await upgraded.list()).notes[0].name, SAMPLE_NAME);
-  assert.equal((await upgraded.read(SAMPLE_NAME)).content, SAMPLE_CONTENT);
-  assert.equal((await upgraded.read('existing')).content, 'keep');
-  await upgraded.delete(SAMPLE_NAME);
-  assert.equal((await new NotesStore(directory, { seed: true }).list()).notes.length, 1);
+  assert.deepEqual((await store.list()).notes, []);
+  await writeFile(join(directory, 'Markdown 内容示例.md'), 'my changes');
+  await store.create('a');
+  assert.deepEqual((await store.list()).notes.map(note => note.name), ['a.md', 'Markdown 内容示例.md']);
+  assert.equal((await store.read('Markdown 内容示例')).content, 'my changes');
 });
 
-test('a pre-existing example document is never overwritten by initialization', async t => {
+test('the list reports when each note was last written, for 全部笔记', async t => {
   const { directory, store } = await fixture(t);
-  await store.create(SAMPLE_NAME); await store.save(SAMPLE_NAME, 'my changes', '');
-  await new NotesStore(directory, { seed: true }).list();
-  assert.equal((await store.read(SAMPLE_NAME)).content, 'my changes');
+  const newYear = new Date(2026, 0, 1);
+  await store.create('older'); await store.create('newer');
+  await utimes(join(directory, 'older.md'), newYear, newYear);
+  await store.save('newer', 'changed', '');
+  const { notes } = await store.list(), modified = (name: string) => notes.find(note => note.name === name)!.modified;
+  assert.equal(Math.round(modified('older.md')), newYear.getTime());
+  assert.ok(modified('newer.md') > modified('older.md'));
 });

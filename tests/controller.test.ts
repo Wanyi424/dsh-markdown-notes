@@ -5,9 +5,11 @@ import type { NotesApi, Note } from '../src/contracts';
 
 function fixture() {
   const files = new Map([['a.md', 'old'], ['b.md', 'second']]);
+  // Modification times; a.md was edited last, so it opens at startup.
+  const times = new Map([['a.md', 2], ['b.md', 1]]);
   const writes: Array<{ name: string; content: string; previous: string }> = [];
   const api: NotesApi = {
-    list: async () => ({ directory: 'test', notes: [...files.keys()].map(name => ({ name })), folders: [] }),
+    list: async () => ({ directory: 'test', notes: [...files.keys()].map(name => ({ name, modified: times.get(name) ?? 0 })), folders: [] }),
     read: async name => ({ name, content: files.get(name)! }),
     create: async name => { if (files.has(name)) throw new Error('exists'); files.set(name, ''); return { name, content: '' }; },
     save: async (name, content, previous) => { writes.push({ name, content, previous }); files.set(name, content); return { name, content }; },
@@ -20,7 +22,7 @@ function fixture() {
     migrate: async directory => ({ directory, previousDirectory: 'test', moved: files.size, oldDirectoryRemoved: true, warnings: [] }),
     openDirectory: async () => {},
   };
-  return { files, writes, api, controller: new NotesController(api, 60_000) };
+  return { files, times, writes, api, controller: new NotesController(api, 60_000) };
 }
 
 test('switching notes flushes the old document before replacing editor contents', async t => {
@@ -138,4 +140,43 @@ test('toggling editing returns to the last editing layout', async t => {
   assert.equal(controller.getSnapshot().mode, 'preview');
   await controller.toggleEditing();
   assert.equal(controller.getSnapshot().mode, 'split');
+});
+
+test('startup opens the note edited last; deleting the open note returns to 全部笔记', async t => {
+  const { controller, times } = fixture();
+  t.after(() => controller.dispose());
+  times.set('b.md', 3);
+  await controller.load();
+  assert.equal(controller.getSnapshot().active, 'b.md');
+  assert.equal(await controller.deleteNote('b.md'), true);
+  assert.equal(controller.getSnapshot().view, 'library');
+  assert.equal(controller.getSnapshot().active, null);
+});
+
+test('全部笔记 saves the open draft first and makes the root the target again', async t => {
+  const { controller, files } = fixture();
+  t.after(() => controller.dispose());
+  files.set('work/c.md', 'third');
+  await controller.load(); await controller.open('work/c.md'); controller.edit('draft');
+  assert.equal(controller.getSnapshot().folder, 'work');
+  assert.equal(await controller.showLibrary(), true);
+  assert.equal(files.get('work/c.md'), 'draft');
+  const { view, active, folder } = controller.getSnapshot();
+  assert.deepEqual([view, active, folder], ['library', null, '']);
+});
+
+test('the sample is read-only and can be saved as an ordinary note', async t => {
+  const { controller, files } = fixture();
+  t.after(() => controller.dispose());
+  await controller.load();
+  assert.equal(await controller.showSample(async () => '# 示例'), true);
+  controller.edit('typed into the sample');
+  let state = controller.getSnapshot();
+  assert.deepEqual([state.view, state.active, state.content, controller.dirty], ['sample', null, '# 示例', false]);
+  await controller.toggleEditing();
+  assert.equal(controller.getSnapshot().mode, 'split');
+  assert.equal(await controller.saveSample('Markdown 示例.md'), true);
+  state = controller.getSnapshot();
+  assert.equal(files.get('Markdown 示例.md'), '# 示例');
+  assert.deepEqual([state.view, state.active, state.mode], ['note', 'Markdown 示例.md', 'split']);
 });

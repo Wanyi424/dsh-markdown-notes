@@ -3,7 +3,7 @@ const manifest = JSON.parse(await readFile(new URL('../package.json', import.met
 await writeFile(new URL('../src/version.ts', import.meta.url), `// Generated from package.json.\nexport const PLUGIN_VERSION = ${JSON.stringify(manifest.version)};\n`);
 const sample = await readFile(new URL('../src/assets/sample.md', import.meta.url), 'utf8');
 await writeFile(new URL('../src/sample.ts', import.meta.url),
-  `// Exact copy of src/assets/sample.md; regenerate with node scripts/build-sample.mjs.\nexport const SAMPLE_NAME = 'Markdown 内容示例.md';\nexport const SAMPLE_CONTENT = ${JSON.stringify(sample)};\n`);
+  `// Exact copy of src/assets/sample.md; regenerate with node scripts/build-sample.mjs.\nexport const SAMPLE_CONTENT = ${JSON.stringify(sample)};\n`);
 const iconSet = JSON.parse(await readFile(new URL('../node_modules/@iconify-json/mdi/icons.json', import.meta.url), 'utf8'));
 const icons = Object.fromEntries(['rocket-launch', 'progress-check', 'account-sync', 'account-group'].map(name => [name,
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${iconSet.width} ${iconSet.height}">${iconSet.icons[name].body}</svg>`]));

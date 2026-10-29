@@ -3,8 +3,7 @@ import { constants } from 'node:fs';
 import { isAbsolute, join, resolve, relative, parse, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_NOTE_BYTES, type ImportFile, type ImportResult, type MigrationResult, type Library, type Note, type NotesApi } from './contracts';
-import { SAMPLE_NAME, SAMPLE_CONTENT } from './sample';
+import { MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_NOTE_BYTES, type ImportFile, type ImportResult, type MigrationResult, type Library, type Note, type NoteSummary, type NotesApi } from './contracts';
 import { baseName, parentFolder, inFolder } from './note-path';
 import { defaultNotesDirectory } from './data-paths';
 
@@ -51,7 +50,7 @@ export class NotesStore implements Omit<NotesApi, 'openDirectory'> {
   private currentDirectory: string;
   get directory() { return this.currentDirectory; }
   private tail: Promise<unknown> = Promise.resolve();
-  constructor(directory = defaultNotesDirectory(), private options: { seed?: boolean; persistDirectory?: (directory: string) => Promise<void>; settingsFile?: string } = {}) {
+  constructor(directory = defaultNotesDirectory(), private options: { persistDirectory?: (directory: string) => Promise<void>; settingsFile?: string } = {}) {
     if (!isAbsolute(directory)) throw new NotesError('invalid-directory', '笔记目录必须使用绝对路径。');
     this.currentDirectory = resolve(directory);
   }
@@ -77,12 +76,11 @@ export class NotesStore implements Omit<NotesApi, 'openDirectory'> {
     }
     return path;
   }
-  private async tree(root = this.directory): Promise<{ notes: { name: string }[]; folders: string[] }> {
-    const notes: { name: string }[] = [], folders: string[] = [], queue = [''];
+  private async tree(root = this.directory): Promise<{ notes: NoteSummary[]; folders: string[] }> {
+    const notes: NoteSummary[] = [], folders: string[] = [], queue = [''];
     for (let index = 0; index < queue.length; index++) {
-      const current = queue[index];
-      const entries = await readdir(await this.folder(current, root), { withFileTypes: true });
-      for (const entry of entries) {
+      const current = queue[index], path = await this.folder(current, root), files: string[] = [];
+      for (const entry of await readdir(path, { withFileTypes: true })) {
         if (entry.isSymbolicLink()) continue;
         const name = inFolder(current, entry.name);
         if (entry.isDirectory()) {
@@ -91,12 +89,15 @@ export class NotesStore implements Omit<NotesApi, 'openDirectory'> {
           folders.push(name); queue.push(name);
         } else if (entry.isFile() && /\.md$/i.test(entry.name)) {
           try { notePath(name); } catch { continue; }
-          notes.push({ name });
+          files.push(entry.name);
         }
       }
+      // Only file metadata, never contents: 全部笔记 sorts by it. A file removed since the listing is left out.
+      const stats = await Promise.all(files.map(file => lstat(join(path, file)).catch(error => { if (error.code === 'ENOENT') return null; throw error; })));
+      files.forEach((file, i) => { const info = stats[i]; if (info) notes.push({ name: inFolder(current, file), modified: info.mtimeMs }); });
     }
     const compare = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true });
-    notes.sort((a, b) => a.name === SAMPLE_NAME ? -1 : b.name === SAMPLE_NAME ? 1 : compare(a.name, b.name));
+    notes.sort((a, b) => compare(a.name, b.name));
     folders.sort(compare);
     return { notes, folders };
   }
@@ -109,17 +110,8 @@ export class NotesStore implements Omit<NotesApi, 'openDirectory'> {
     return this.serial(async () => {
       await mkdir(this.directory, { recursive: true });
       await this.folder();
-      if (this.options.seed) await this.seed();
       return { directory: this.directory, ...await this.tree() };
     });
-  }
-  private async seed() {
-    const marker = join(this.directory, '.dsh-notes-welcome-v1');
-    try { await lstat(marker); return; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    try { await writeFile(join(this.directory, SAMPLE_NAME), SAMPLE_CONTENT, { flag: 'wx', encoding: 'utf8' }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-    try { await writeFile(marker, '1\n', { flag: 'wx' }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
   }
   read(name: string): Promise<Note> { return this.serial(() => this.readNote(name)); }
   create(input: string): Promise<Note> {
@@ -240,7 +232,8 @@ export class NotesStore implements Omit<NotesApi, 'openDirectory'> {
         if (nested(realSource, target) || nested(target, realSource)) throw new NotesError('nested-directory', '新旧目录实际指向相同位置或互为父子目录。');
         if (this.options.settingsFile && (nested(realSource, resolve(this.options.settingsFile)) || nested(target, resolve(this.options.settingsFile)))) throw new NotesError('settings-directory', '请将笔记目录与插件设置文件所在目录分开。');
         const tree = await this.tree(source);
-        const managed = [...tree.notes];
+        const managed: { name: string }[] = [...tree.notes];
+        // Versions before 0.6 seeded a sample note and left this marker; it moves too, so the old folder can be removed.
         const marker = '.dsh-notes-welcome-v1';
         try { const info = await lstat(join(source, marker)); if (info.isFile() && !info.isSymbolicLink()) managed.push({ name: marker }); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }

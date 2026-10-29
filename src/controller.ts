@@ -2,18 +2,23 @@ import type { NotesApi, NoteSummary, Note, ImportFile } from './contracts';
 import { baseName, parentFolder, inFolder, withinFolder } from './note-path';
 
 export type ViewMode = 'edit' | 'split' | 'preview';
+/** What the main area shows: the open note, 全部笔记 (the whole library), or the built-in read-only sample. */
+export type View = 'note' | 'library' | 'sample';
 export interface NotesState {
-  directory: string; notes: NoteSummary[]; active: string | null;
+  directory: string; notes: NoteSummary[]; active: string | null; view: View;
   /** Target for new notes and imports; folderFocus marks it as explicitly picked in the tree. */
   folders: string[]; folder: string; folderFocus: boolean; expanded: string[];
   content: string; saved: string; saving: boolean; busy: boolean;
   loaded: boolean; error: string; notice: string; mode: ViewMode; lastEdit: 'edit' | 'split';
 }
 
+/** The note to open when nothing more specific was asked for: the one edited last. */
+const latest = (notes: NoteSummary[]) => notes.reduce<NoteSummary | null>((last, note) => !last || note.modified > last.modified ? note : last, null);
+
 /** Owned by the plugin, not by the page: leaving the panel does not discard a draft. */
 export class NotesController {
   private state: NotesState = {
-    directory: '', notes: [], active: null, content: '', saved: '', saving: false,
+    directory: '', notes: [], active: null, view: 'library', content: '', saved: '', saving: false,
     folders: [], folder: '', folderFocus: false, expanded: [],
     busy: false, loaded: false, error: '', notice: '', mode: 'preview', lastEdit: 'edit',
   };
@@ -43,8 +48,10 @@ export class NotesController {
   }
   private select(note: Note) {
     const folder = parentFolder(note.name);
-    this.patch({ active: note.name, content: note.content, saved: note.content, folder, folderFocus: false, expanded: this.reveal(folder) });
+    this.patch({ view: 'note', active: note.name, content: note.content, saved: note.content, folder, folderFocus: false, expanded: this.reveal(folder) });
   }
+  /** Shows 全部笔记 in place of the open document; new notes then go to the root again. */
+  private leave() { this.patch({ view: 'library', active: null, content: '', saved: '', folder: '', folderFocus: false }); }
   selectFolder(folder: string) {
     if (this.state.busy || (folder && !this.state.folders.includes(folder))) return;
     this.patch({ folder, folderFocus: true, expanded: this.reveal(folder) });
@@ -61,8 +68,11 @@ export class NotesController {
     this.patch({ mode, lastEdit: mode });
     return true;
   }
-  /** Ctrl+E: reading goes back to the last editing layout, editing finishes to reading. */
-  toggleEditing() { return this.setMode(this.state.mode === 'preview' ? this.state.lastEdit : 'preview'); }
+  /** Ctrl+E: reading goes back to the last editing layout (the sample has only the split one), editing finishes to reading. */
+  toggleEditing() {
+    const { mode, lastEdit, view } = this.state;
+    return this.setMode(mode !== 'preview' ? 'preview' : view === 'sample' ? 'split' : lastEdit);
+  }
   edit(content: string) {
     if (this.state.busy || this.disposed || !this.state.active) return;
     this.patch({ content });
@@ -112,14 +122,38 @@ export class NotesController {
   refresh() {
     return this.operation(async () => {
       await this.list();
-      const selected = this.state.notes.find(n => n.name === this.state.active) ?? this.state.notes[0];
-      if (selected) this.select(await this.api.read(selected.name));
-      else this.patch({ active: null, content: '', saved: '' });
+      const { notes, active, view, loaded } = this.state;
+      // At startup the note edited last; afterwards the open note again, unless it is gone. Other views stay as they are.
+      const next = view === 'note' ? notes.find(note => note.name === active) : loaded ? undefined : latest(notes);
+      if (next) this.select(await this.api.read(next.name));
+      else if (view === 'note') this.leave();
       this.patch({ loaded: true });
     });
   }
   open(name: string) {
     return this.operation(async () => { this.select(await this.api.read(name)); this.patch({ mode: 'preview' }); });
+  }
+  /** 全部笔记. Listing again picks up the edit times of saves made since the last listing. */
+  showLibrary() {
+    return this.operation(async () => { await this.list(); this.leave(); });
+  }
+  /** The built-in sample is read-only: no note is active, so edits and autosave never reach it. */
+  showSample(load: () => Promise<string>) {
+    return this.operation(async () => {
+      const content = await load();
+      this.patch({ view: 'sample', active: null, content, saved: content, mode: 'preview' });
+    });
+  }
+  /** Copies the sample into the target folder as an ordinary note and opens it; a taken name gets a number. */
+  saveSample(name: string) {
+    return this.operation(async () => {
+      if (this.state.view !== 'sample') return;
+      const { notes: [copy], errors } = await this.api.importFiles([{ name, content: this.state.content }], this.state.folder);
+      if (!copy) throw new Error(errors.join('\n'));
+      await this.list();
+      this.select(await this.api.read(copy.name));
+      this.patch({ notice: `已存为「${baseName(copy.name).replace(/\.md$/i, '')}」，可以自由修改。` });
+    });
   }
   create(name: string, folder = this.state.folder) {
     return this.operation(async () => {
@@ -149,10 +183,9 @@ export class NotesController {
   deleteNote(path: string) {
     return this.operation(async () => {
       await this.api.delete(path);
-      if (path !== this.state.active) { await this.list(); return; }
-      this.patch({ active: null, content: '', saved: '' });
+      // Deleting the open note returns to 全部笔记 instead of opening an unrelated one.
+      if (path === this.state.active) this.leave();
       await this.list();
-      if (this.state.notes[0]) this.select(await this.api.read(this.state.notes[0].name));
     });
   }
   createFolder(name: string, parent = this.state.folder) {

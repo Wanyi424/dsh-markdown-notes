@@ -30,6 +30,10 @@ try {
   assert.ok(!idleRequests.some(path => path.startsWith('/client.') || path.startsWith('/api/')));
   const start = Date.now();
   await page.locator('#open-notes').click();
+  // A new library is empty. The built-in sample is one click away and loads only when opened.
+  await page.locator('.dsn-welcome').waitFor({ timeout: 30000 });
+  assert.ok(!requests.includes('/client.sample.js'));
+  await page.getByRole('button', { name: 'Markdown 示例', exact: true }).click();
   await page.locator('.dsn-prose h1').waitFor({ timeout: 30000 });
   const readingReadyMs = Date.now() - start;
   assert.ok(!requests.includes('/client.editor.js'));
@@ -82,6 +86,13 @@ try {
   await tocButton.click(); await page.locator('.dsn-outline').waitFor({ state: 'detached' });
   await page.locator('.dsn-outline-ticks i[data-active]').waitFor();
   await tocButton.click(); await page.locator('.dsn-outline').waitFor();
+
+  // The sample is read-only, without an editing mode, until it is saved as an ordinary note.
+  assert.equal(await mode('编辑').count(), 0);
+  await page.getByRole('button', { name: '存为我的笔记', exact: true }).click();
+  await page.locator('.dsn-document-title').filter({ hasText: 'Markdown 示例' }).waitFor();
+  await page.locator('.dsn-toast').filter({ hasText: '已存为「Markdown 示例」' }).waitFor();
+  assert.equal(await readFile(join(temporary, 'notes', 'Markdown 示例.md'), 'utf8'), await readFile('src/assets/sample.md', 'utf8'));
 
   // Editing and synchronized split scrolling.
   await mode('编辑').click();
@@ -221,12 +232,12 @@ try {
   await page.locator('.dsn-document-title').filter({ hasText: '浏览器验收' }).waitFor();
   await shot('formats-light');
   // Title filter: instant matches with the folder path, Enter opens the first, Esc clears.
-  await page.getByRole('searchbox', { name: '筛选笔记' }).fill('内容');
-  await page.locator('.dsn-result').filter({ hasText: 'Markdown 内容示例' }).waitFor();
+  await page.getByRole('searchbox', { name: '筛选笔记' }).fill('示例');
+  await page.locator('.dsn-result').filter({ hasText: 'Markdown 示例' }).waitFor();
   assert.equal(await page.locator('.dsn-result').count(), 1);
   await shot('filter');
   await page.getByRole('searchbox', { name: '筛选笔记' }).press('Enter');
-  await page.locator('.dsn-document-title').filter({ hasText: 'Markdown 内容示例' }).waitFor();
+  await page.locator('.dsn-document-title').filter({ hasText: 'Markdown 示例' }).waitFor();
   // Switching notes keeps the contents: the new preview reports its headings after the old one clears them.
   await page.locator('.dsn-outline a').first().waitFor();
   assert.ok(await page.locator('.dsn-outline a').count() >= 5, 'contents survive a note switch');
@@ -255,6 +266,9 @@ try {
   await documentAction('删除');
   await page.getByRole('dialog').getByRole('button', { name: '删除', exact: true }).click();
   await page.waitForFunction(() => ![...document.querySelectorAll('.dsn-note')].some(n => n.textContent.includes('浏览器验收')));
+  // Deleting the open note returns to 全部笔记 rather than opening another one.
+  await page.locator('.dsn-library').waitFor();
+  assert.deepEqual(await page.locator('.dsn-entry strong').allInnerTexts(), ['Markdown 示例']);
   assert.equal(errors.length, 0, errors.join('\n'));
   const externalRequests = [...new Set(external)];
   assert.ok(externalRequests.every(url => url === banner), 'Unexpected external renderer request: ' + externalRequests.join('\n'));
@@ -272,6 +286,13 @@ try {
   await shot('import-toast');
   await drop([{ name: '拖入文档.md', content: '# 第二份' }]);
   await page.locator('.dsn-document-title').filter({ hasText: '拖入文档 (2)' }).waitFor();
+  // 全部笔记 lists every note with the latest edit first; a row opens its note.
+  await page.getByRole('button', { name: '全部笔记', exact: true }).click();
+  await page.locator('.dsn-library').waitFor();
+  assert.deepEqual(await page.locator('.dsn-entry strong').allInnerTexts(), ['拖入文档 (2)', '拖入文档', 'Markdown 示例']);
+  await shot('all-notes');
+  await page.locator('.dsn-entry').filter({ hasText: 'Markdown 示例' }).click();
+  await page.locator('.dsn-document-title').filter({ hasText: 'Markdown 示例' }).waitFor();
   await libraryAction('在资源管理器打开');
   await page.waitForTimeout(100); assert.equal(opened.at(-1)?.path, join(temporary, 'notes'));
   await libraryAction('保存位置…');
@@ -298,6 +319,7 @@ try {
     outline: `${outlineLinks} sections, click navigation and scroll spy passed; ticks with peek and pinned list where it cannot dock; survives note switches`, motion: 'rail column and drawer, menus and dialogs animate out before unmounting', themes: 'default / book / article, remembered', filter: 'title match, Enter opens, Esc clears', contextMenu: 'passed', editingShortcut: 'Ctrl+E toggles reading and the last editing layout',
     migration: 'copied files, committed settings, deleted empty old folder', dragImport: 'passed including name collisions', explorerDispatch: 'active directory verified; OS window mocked',
     largeDocumentGuard: 'passed', closedPanelRequests: 0,
+    sample: 'loads on demand, read-only, saved as an ordinary note', allNotes: 'latest edit first, opens notes, shown after deleting the open note',
     synchronizedScroll: { editorToPreview, reverseOffset, endpoints: 'passed', noOscillation: 'passed' },
     interactionFlow: 'create -> edit -> save -> rename -> reload -> read -> cancel delete -> delete passed', tasksAndFootnotes: 'passed', rawHtmlSafety: 'passed', copyAndToc: 'passed', errors, externalRequests };
   await writeFile(join(output, 'report.json'), JSON.stringify(result, null, 2));

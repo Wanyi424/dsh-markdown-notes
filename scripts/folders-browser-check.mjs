@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { readFile, writeFile, mkdtemp, mkdir, rm, lstat } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir, rm, lstat } from 'node:fs/promises';
 import { join, resolve, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { apply, NotesSettings } from '../lib/host.js';
@@ -13,7 +13,6 @@ let harness;
 try {
   await mkdir(output, { recursive: true });
   const library = join(temporary, 'notes'); await mkdir(library);
-  await writeFile(join(library, '.dsh-notes-welcome-v1'), '1');
   await build({ entryPoints: ['tests/browser-entry.tsx'], outfile: join(temporary, 'entry.js'), bundle: true, platform: 'browser', format: 'iife', define: { 'process.env.NODE_ENV': '"production"' } });
   let api;
   const settings = new NotesSettings(join(temporary, 'settings', 'settings.json'));
